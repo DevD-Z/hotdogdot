@@ -17,7 +17,7 @@ Copy `.env.example` to `.env` and set only the values you use:
 RENDER_API_KEY=
 RENDER_SERVICE_ID=
 DISCORD_CLIENT_ID=
-LAVALINK_PASSWORD=change-me
+LAVALINK_SERVER_PASSWORD=change-me
 ```
 
 `RENDER_API_KEY` is consumed only by `scripts/render-service.ps1`. It is never included in the frontend bundle. `DISCORD_CLIENT_ID` is the public Application ID from the Discord Developer Portal and is compiled into the native desktop integration.
