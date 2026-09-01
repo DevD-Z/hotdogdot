@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: hotdogdot-lavalink
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    autoDeploy: true
+    envVars:
+      - key: SERVER_PORT
+        value: 10000
+      - key: LAVALINK_SERVER_PASSWORD
+        sync: false

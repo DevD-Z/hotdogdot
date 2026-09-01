@@ -1,0 +1,19 @@
+{
+  "name": "hotdogdot",
+  "short_name": "hotdogdot",
+  "description": "A modern music player powered by Lavalink.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#07111f",
+  "theme_color": "#07111f",
+  "icons": [
+    {
+      "src": "/app-logo.png",
+      "sizes": "1254x1254",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
