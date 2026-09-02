@@ -4,7 +4,10 @@ import * as nativeAudioApi from 'tauri-plugin-native-audio-api';
 import { isTauri } from '@tauri-apps/api/core';
 import { logger } from './logger';
 
-export const isNativeMobile = (): boolean => isTauri();
+export const isNativeMobile = (): boolean =>
+  isTauri()
+  || window.location.hostname === 'tauri.localhost'
+  || window.location.hostname === 'localhost.tauri';
 
 const youtubeUrl = /(?:youtube\.com|youtube-nocookie\.com|youtu\.be)/i;
 
