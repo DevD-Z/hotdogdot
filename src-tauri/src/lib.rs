@@ -2,9 +2,11 @@
 use discord_rich_presence::{activity, DiscordIpc, DiscordIpcClient};
 #[cfg(desktop)]
 use std::sync::Mutex;
+use tauri::Manager;
 
 #[tauri::command]
 async fn cache_lavalink_youtube(
+    app: tauri::AppHandle,
     video_id: String,
     base_url: String,
     password: String,
@@ -16,7 +18,9 @@ async fn cache_lavalink_youtube(
     if base.scheme() != "https" {
         return Err("Native streaming requires HTTPS".into());
     }
-    let cache_path = std::env::temp_dir().join(format!("hotdogdot-{video_id}.audio"));
+    let cache_dir = app.path().app_cache_dir().map_err(|error| format!("Cannot resolve app cache: {error}"))?;
+    std::fs::create_dir_all(&cache_dir).map_err(|error| format!("Cannot create app cache: {error}"))?;
+    let cache_path = cache_dir.join(format!("hotdogdot-{video_id}.webm"));
     if cache_path.metadata().map(|meta| meta.len() > 32_000).unwrap_or(false) {
         return Ok(format!("file:///{}", cache_path.to_string_lossy().replace('\\', "/")));
     }
