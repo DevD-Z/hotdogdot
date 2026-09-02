@@ -3,13 +3,8 @@ import type { NativeAudioState } from 'tauri-plugin-native-audio-api';
 import * as nativeAudioApi from 'tauri-plugin-native-audio-api';
 import { logger } from './logger';
 
-const isMobileRuntime = () =>
-  /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
-  || navigator.maxTouchPoints > 0
-  || window.matchMedia?.('(pointer: coarse)').matches;
-
 export const isNativeMobile = (): boolean =>
-  ('__TAURI_INTERNALS__' in window || '__TAURI__' in window) && isMobileRuntime();
+  '__TAURI_INTERNALS__' in window || '__TAURI__' in window;
 
 const youtubeUrl = /(?:youtube\.com|youtube-nocookie\.com|youtu\.be)/i;
 
