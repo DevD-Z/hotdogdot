@@ -1,10 +1,10 @@
 import type { Track } from '../types/music';
 import type { NativeAudioState } from 'tauri-plugin-native-audio-api';
 import * as nativeAudioApi from 'tauri-plugin-native-audio-api';
+import { isTauri } from '@tauri-apps/api/core';
 import { logger } from './logger';
 
-export const isNativeMobile = (): boolean =>
-  '__TAURI_INTERNALS__' in window || '__TAURI__' in window;
+export const isNativeMobile = (): boolean => isTauri();
 
 const youtubeUrl = /(?:youtube\.com|youtube-nocookie\.com|youtu\.be)/i;
 
