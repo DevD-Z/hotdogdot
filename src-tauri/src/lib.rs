@@ -24,7 +24,9 @@ async fn cache_lavalink_youtube(
     if cache_path.metadata().map(|meta| meta.len() > 32_000).unwrap_or(false) {
         return Ok(format!("file:///{}", cache_path.to_string_lossy().replace('\\', "/")));
     }
-    let url = format!("{}/youtube/stream/{}?withClient=ANDROID_VR", base_url.trim_end_matches('/'), video_id);
+    // Let youtube-source try every configured playback client. Pinning this to
+    // ANDROID_VR made otherwise playable tracks fail without a fallback.
+    let url = format!("{}/youtube/stream/{}", base_url.trim_end_matches('/'), video_id);
     let response = reqwest::Client::new()
         .get(url)
         .header("Authorization", password)

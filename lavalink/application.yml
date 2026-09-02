@@ -37,8 +37,13 @@ plugins:
     allowSearch: true
     allowDirectVideoIds: true
     allowDirectPlaylistIds: true
+    oauth:
+      enabled: "${YOUTUBE_OAUTH_ENABLED:false}"
+      refreshToken: "${YOUTUBE_OAUTH_REFRESH_TOKEN:}"
+      skipInitialization: "${YOUTUBE_OAUTH_SKIP_INITIALIZATION:true}"
     clients:
       - MUSIC
+      - TV
       - ANDROID_VR
       - ANDROID_MUSIC
       - IOS

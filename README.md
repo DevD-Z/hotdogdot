@@ -79,6 +79,11 @@ Invoke-RestMethod -Headers @{ Authorization = 'hotdogdot-local-lavalink' } http:
 
 For Render, `render.yaml` and `Dockerfile` define the Lavalink web service. Set `LAVALINK_SERVER_PASSWORD` as a secret in Render. Server-side Render API operations are available through:
 
+Hosted data-center IPs may be challenged by YouTube even while search continues to work. In that case, configure
+`YOUTUBE_OAUTH_ENABLED=true`, `YOUTUBE_OAUTH_REFRESH_TOKEN` with a token from a dedicated/burner account, and
+`YOUTUBE_OAUTH_SKIP_INITIALIZATION=true` in Render. Never use a primary Google account or commit the refresh token.
+Tracks rejected by YouTube cannot be converted into native background streams until the hosted node is authenticated.
+
 ```powershell
 npm run render:status
 npm run render:deploy

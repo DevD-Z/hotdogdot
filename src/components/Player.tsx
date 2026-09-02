@@ -117,6 +117,12 @@ export const Player: React.FC<PlayerProps> = ({
     if (!isNativeMobile() || !ytId || !currentTrack) return;
     let cancelled = false;
     const config = lavalinkService.getConfig();
+    // Stop the previous native item immediately. Waiting for the next stream
+    // download made the old song continue and made track selection look stuck.
+    void nativeAudio.pause().catch(() => undefined);
+    ytPlayerRef.current?.pauseVideo?.();
+    setCurrentTime(0);
+    setDuration(currentTrack.length ? currentTrack.length / 1000 : 0);
     setPlaybackStatus('loading');
     void invoke<string>('cache_lavalink_youtube', {
       videoId: ytId,
