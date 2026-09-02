@@ -66,8 +66,8 @@ export const Player: React.FC<PlayerProps> = ({
   const [isMuted, setIsMuted] = useState(false);
   const [isShuffle, setIsShuffle] = useState(false);
   const [isRepeat, setIsRepeat] = useState(false);
-  const [cachedNativeSource, setCachedNativeSource] = useState<string | null>(null);
-  const [nativeStreamFailed, setNativeStreamFailed] = useState(false);
+  const [cachedNativeSource, setCachedNativeSource] = useState<{ trackId: string; source: string } | null>(null);
+  const [nativeStreamFailedFor, setNativeStreamFailedFor] = useState<string | null>(null);
 
   // Player engines live longer than a React render. Keep their callbacks fresh
   // without tearing down native/YouTube listeners whenever the parent renders.
@@ -102,16 +102,18 @@ export const Player: React.FC<PlayerProps> = ({
   }, []);
 
   const ytId = getYouTubeId(currentTrack);
-  const nativeTrack = currentTrack && cachedNativeSource
-    ? { ...currentTrack, playbackUrl: cachedNativeSource }
+  const cachedSource = currentTrack && cachedNativeSource?.trackId === currentTrack.identifier
+    ? cachedNativeSource.source
+    : null;
+  const nativeTrack = currentTrack && cachedSource
+    ? { ...currentTrack, playbackUrl: cachedSource }
     : currentTrack;
   const nativeSrc = nativeSourceFor(nativeTrack);
-  const resolvingNativeStream = isNativeMobile() && Boolean(ytId) && !nativeSrc && !nativeStreamFailed;
+  const resolvingNativeStream = isNativeMobile() && Boolean(ytId) && !nativeSrc
+    && nativeStreamFailedFor !== currentTrack?.identifier;
   const webYtId = nativeSrc || resolvingNativeStream ? null : ytId;
 
   useEffect(() => {
-    setCachedNativeSource(null);
-    setNativeStreamFailed(false);
     if (!isNativeMobile() || !ytId || !currentTrack) return;
     let cancelled = false;
     const config = lavalinkService.getConfig();
@@ -121,11 +123,11 @@ export const Player: React.FC<PlayerProps> = ({
       baseUrl: getLavalinkBaseUrl(config),
       password: config.password,
     }).then((source) => {
-      if (!cancelled) setCachedNativeSource(source);
+      if (!cancelled) setCachedNativeSource({ trackId: currentTrack.identifier, source });
     }).catch((error) => {
       if (cancelled) return;
       logger.addLog('warn', 'Player', `Native YouTube stream unavailable: ${String(error)}`);
-      setNativeStreamFailed(true);
+      setNativeStreamFailedFor(currentTrack.identifier);
     });
     return () => { cancelled = true; };
   }, [currentTrack?.identifier, ytId]);
