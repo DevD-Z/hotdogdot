@@ -1,7 +1,18 @@
 import { LavalinkServerPreset } from '../types/music';
+import { normalizeLavalinkEndpoint } from './lavalinkUrl';
 
 // Default servers set to empty - Users must provide their own server settings
 export const PUBLIC_LAVALINK_SERVERS: LavalinkServerPreset[] = [
+  {
+    id: 'hotdogdot-main',
+    name: 'hotdogdot Lavalink',
+    host: 'hotdogdot-lavalink.onrender.com',
+    port: 443,
+    password: '',
+    secure: true,
+    location: 'Render Cloud',
+    description: 'เซิร์ฟเวอร์หลักของ hotdogdot (กรอกรหัสผ่านในหน้าตั้งค่า)',
+  },
   {
     id: 'local-lavalink',
     name: 'Local Lavalink',
@@ -22,7 +33,9 @@ export function getStoredLavalinkServers(): LavalinkServerPreset[] {
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) {
-        return parsed;
+        const normalized = parsed.map(server => normalizeLavalinkEndpoint(server as LavalinkServerPreset));
+        localStorage.setItem(ALL_SERVERS_KEY, JSON.stringify(normalized));
+        return normalized;
       }
     }
   } catch {
@@ -32,10 +45,10 @@ export function getStoredLavalinkServers(): LavalinkServerPreset[] {
 }
 
 export function saveCustomLavalinkServer(server: Omit<LavalinkServerPreset, 'id'>): LavalinkServerPreset[] {
-  const newServer: LavalinkServerPreset = {
+  const newServer: LavalinkServerPreset = normalizeLavalinkEndpoint({
     ...server,
     id: `node-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-  };
+  });
 
   const current = getStoredLavalinkServers();
   const updated = [...current, newServer];

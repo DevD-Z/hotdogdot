@@ -4,6 +4,7 @@ import { getStoredLavalinkServers } from '../services/lavalinkPresets';
 import { LavalinkServerPreset } from '../types/music';
 import { customFetch } from '../services/http';
 import { logger } from '../services/logger';
+import { getLavalinkBaseUrl } from '../services/lavalinkUrl';
 
 interface SplashScreenProps {
   onComplete: (bestServer?: LavalinkServerPreset) => void;
@@ -31,8 +32,7 @@ export const SplashScreen: React.FC<SplashScreenProps> = ({ onComplete }) => {
     }
 
     const checkPromises = serversToTest.map(async (server) => {
-      const protocol = server.secure ? 'https' : 'http';
-      const url = `${protocol}://${server.host}:${server.port}/v4/loadtracks?identifier=ytsearch:music`;
+      const url = `${getLavalinkBaseUrl(server)}/v4/loadtracks?identifier=ytsearch:music`;
       const start = Date.now();
 
       try {

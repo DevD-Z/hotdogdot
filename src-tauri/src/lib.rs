@@ -3,6 +3,40 @@ use discord_rich_presence::{activity, DiscordIpc, DiscordIpcClient};
 #[cfg(desktop)]
 use std::sync::Mutex;
 
+#[tauri::command]
+async fn cache_lavalink_youtube(
+    video_id: String,
+    base_url: String,
+    password: String,
+) -> Result<String, String> {
+    if video_id.len() != 11 || !video_id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+        return Err("Invalid YouTube video ID".into());
+    }
+    let base = reqwest::Url::parse(&base_url).map_err(|_| "Invalid Lavalink URL")?;
+    if base.scheme() != "https" {
+        return Err("Native streaming requires HTTPS".into());
+    }
+    let cache_path = std::env::temp_dir().join(format!("hotdogdot-{video_id}.audio"));
+    if cache_path.metadata().map(|meta| meta.len() > 32_000).unwrap_or(false) {
+        return Ok(format!("file:///{}", cache_path.to_string_lossy().replace('\\', "/")));
+    }
+    let url = format!("{}/youtube/stream/{}?withClient=ANDROID_VR", base_url.trim_end_matches('/'), video_id);
+    let response = reqwest::Client::new()
+        .get(url)
+        .header("Authorization", password)
+        .send().await.map_err(|error| format!("Stream request failed: {error}"))?;
+    if !response.status().is_success() {
+        return Err(format!("Lavalink stream returned HTTP {}", response.status()));
+    }
+    if response.content_length().unwrap_or(0) > 64 * 1024 * 1024 {
+        return Err("Audio stream is larger than 64 MB".into());
+    }
+    let bytes = response.bytes().await.map_err(|error| format!("Stream download failed: {error}"))?;
+    if bytes.len() > 64 * 1024 * 1024 { return Err("Audio stream is larger than 64 MB".into()); }
+    std::fs::write(&cache_path, &bytes).map_err(|error| format!("Cannot cache audio: {error}"))?;
+    Ok(format!("file:///{}", cache_path.to_string_lossy().replace('\\', "/")))
+}
+
 #[cfg(desktop)]
 struct DiscordState {
     client: Mutex<Option<DiscordIpcClient>>,
@@ -77,12 +111,15 @@ fn discord_clear_activity(state: tauri::State<'_, DiscordState>) -> Result<(), S
 pub fn run() {
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_http::init());
+        .plugin(tauri_plugin_http::init())
+        .plugin(tauri_plugin_native_audio::init());
     #[cfg(desktop)]
     let builder = builder
         .manage(DiscordState::default())
-        .invoke_handler(tauri::generate_handler![discord_initialize, discord_update_activity, discord_clear_activity])
+        .invoke_handler(tauri::generate_handler![discord_initialize, discord_update_activity, discord_clear_activity, cache_lavalink_youtube])
         ;
+    #[cfg(mobile)]
+    let builder = builder.invoke_handler(tauri::generate_handler![cache_lavalink_youtube]);
     builder.run(tauri::generate_context!())
         .expect("error while running hotdogdot");
 }

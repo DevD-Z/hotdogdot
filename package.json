@@ -12,6 +12,9 @@
     "android:init": "tauri android init",
     "android:dev": "tauri android dev",
     "android:build": "tauri android build",
+    "ios:init": "tauri ios init",
+    "ios:dev": "tauri ios dev",
+    "ios:build": "tauri ios build",
     "render:status": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/render-service.ps1 status",
     "render:deploy": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/render-service.ps1 deploy",
     "tauri": "tauri"
@@ -22,7 +25,8 @@
     "@tauri-apps/plugin-opener": "^2",
     "lucide-react": "^1.34.0",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "tauri-plugin-native-audio-api": "^1.0.5"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",

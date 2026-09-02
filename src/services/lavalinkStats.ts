@@ -1,6 +1,7 @@
 import { LavalinkServerPreset } from '../types/music';
 import { customFetch } from './http';
 import { logger } from './logger';
+import { getLavalinkBaseUrl } from './lavalinkUrl';
 
 export interface LavalinkDeepStats {
   players: number;
@@ -61,8 +62,7 @@ export function formatUptime(ms: number): string {
  * Fetches detailed deep server statistics and version from Lavalink v4 REST API
  */
 export async function fetchDeepServerStats(server: LavalinkServerPreset): Promise<LavalinkDeepStats | null> {
-  const protocol = server.secure ? 'https' : 'http';
-  const baseUrl = `${protocol}://${server.host}:${server.port}`;
+  const baseUrl = getLavalinkBaseUrl(server);
   const start = Date.now();
 
   logger.addLog('info', 'Lavalink', `Fetching deep stats for server: ${server.name} (${baseUrl})`);

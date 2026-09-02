@@ -22,6 +22,11 @@ import { logger } from './services/logger';
 import { discordPresence } from './services/discordPresence';
 
 export function App() {
+  const [theme, setTheme] = useState<'dark' | 'light'>(() => {
+    const saved = localStorage.getItem('hotdogdot_theme');
+    if (saved === 'dark' || saved === 'light') return saved;
+    return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+  });
   const [showSplash, setShowSplash] = useState(true);
   const [activeTab, setActiveTab] = useState<'home' | 'search' | 'history' | 'servers' | 'logs' | 'about'>('home');
   const [isConnected, setIsConnected] = useState(false);
@@ -53,6 +58,12 @@ export function App() {
   const [historyItems, setHistoryItems] = useState<HistoryItem[]>([]);
 
   // Initialize Lavalink & Load History
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    document.documentElement.style.colorScheme = theme;
+    localStorage.setItem('hotdogdot_theme', theme);
+  }, [theme]);
+
   useEffect(() => {
     setHistoryItems(getListeningHistory());
 
@@ -299,11 +310,11 @@ export function App() {
   // Queue actions
   const handleAddToQueue = (track: Track) => {
     logger.addLog('info', 'System', `Added to queue: "${track.title}"`);
-    setQueue([...queue, track]);
+    setQueue((currentQueue) => [...currentQueue, track]);
   };
 
   const handleRemoveFromQueue = (index: number) => {
-    setQueue(queue.filter((_, idx) => idx !== index));
+    setQueue((currentQueue) => currentQueue.filter((_, idx) => idx !== index));
   };
 
   const handleClearQueue = () => {
@@ -334,7 +345,7 @@ export function App() {
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
-      className="app-shell flex h-[100dvh] bg-slate-950 text-slate-100 overflow-hidden font-sans relative"
+      className={`app-shell theme-${theme} flex h-[100dvh] bg-slate-950 text-slate-100 overflow-hidden font-sans relative`}
     >
       {/* Hidden Local File Input */}
       <input
@@ -382,7 +393,7 @@ export function App() {
           onOpenLocalFiles={handleOpenLocalFiles}
         />
 
-        <main className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto pb-48 md:pb-24 bg-gradient-to-b from-slate-900/50 via-slate-950 to-slate-950">
+        <main className="app-content min-w-0 flex-1 overflow-x-hidden overflow-y-auto pb-48 md:pb-24 bg-gradient-to-b from-slate-900/50 via-slate-950 to-slate-950">
           <div key={activeTab} className="animate-page-enter h-full">
             {activeTab === 'home' && (
               <HomeView
@@ -445,6 +456,7 @@ export function App() {
           isLyricsOpen={isLyricsOpen}
           onTimeUpdate={(time) => setPlayerCurrentTime(time)}
           seekTime={seekTimeRequested}
+          onPlaybackStateChange={setIsPlaying}
         />
 
         <nav className="mobile-nav md:hidden fixed bottom-0 inset-x-0 z-50 px-1 bg-slate-950/95 border-t border-slate-800 backdrop-blur-xl flex items-center justify-around">
@@ -502,6 +514,8 @@ export function App() {
           onSave={handleSaveLavalinkConfig}
           onClose={() => setIsSettingsOpen(false)}
           onTest={handleTestLavalink}
+          theme={theme}
+          onThemeChange={setTheme}
         />
       )}
 

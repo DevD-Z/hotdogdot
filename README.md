@@ -8,6 +8,7 @@ hotdogdot is a responsive music player built with React 19, Vite, Tauri 2, and L
 - Rust stable
 - Docker Desktop for the local Lavalink node
 - Android Studio, Android SDK, and the Tauri mobile prerequisites for Android builds
+- macOS with Xcode 15+ and an Apple Developer account for iOS device/IPA builds
 
 ## Environment
 
@@ -60,6 +61,12 @@ npm run android:build
 ```
 
 Tauri uses the existing app icons in `src-tauri/icons/android`. The responsive UI includes touch targets, safe-area padding, mobile navigation, and modal sizing for phone screens.
+
+Direct audio URLs and local files use the native Media3 playback service on Android. This provides a foreground media notification, Media Session controls, audio focus handling, headphone/Bluetooth disconnect handling, and background/lock-screen playback. Web-only YouTube iframe playback remains a compatibility fallback and cannot be guaranteed after the WebView is suspended.
+
+## iOS / IPA
+
+iOS setup and archive instructions are in [`docs/IOS_BUILD.md`](docs/IOS_BUILD.md). Creating the Xcode project, signing, running on an iPhone, archiving, and exporting an IPA require macOS and Xcode; Windows cannot produce a native signed IPA directly.
 
 ## Lavalink
 

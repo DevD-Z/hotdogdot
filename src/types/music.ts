@@ -11,6 +11,8 @@ export interface Track {
   isrc?: string;
   sourceName?: string;
   encoded?: string; // Lavalink encoded track string
+  /** Direct audio URL/path for native background playback when available. */
+  playbackUrl?: string;
 }
 
 export interface LavalinkTrackItem {

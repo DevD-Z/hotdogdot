@@ -1,13 +1,14 @@
 import { LavalinkConfig, LavalinkSearchResult, LavalinkTrackItem, Track } from '../types/music';
 import { customFetch } from './http';
 import { logger } from './logger';
+import { getLavalinkBaseUrl, getLavalinkWebSocketUrl, normalizeLavalinkEndpoint } from './lavalinkUrl';
 
 const DEFAULT_CONFIG: LavalinkConfig = {
-  host: 'localhost',
-  port: 2333,
-  password: 'hotdogdot-local-lavalink',
-  secure: false,
-  name: 'Local Lavalink',
+  host: 'hotdogdot-lavalink.onrender.com',
+  port: 443,
+  password: '',
+  secure: true,
+  name: 'hotdogdot Lavalink',
 };
 
 const CONFIG_KEY = 'hotdogdot_lavalink_config';
@@ -19,23 +20,23 @@ export function getLavalinkConfig(): LavalinkConfig {
     if (!raw) return DEFAULT_CONFIG;
 
     const stored = JSON.parse(raw) as Partial<LavalinkConfig>;
-    // Migrate the old empty default to the bundled local node automatically.
+    // Fresh installs use the hosted node. Existing explicit user choices remain intact.
     if (!stored.host) return DEFAULT_CONFIG;
     const migrated = { ...DEFAULT_CONFIG, ...stored };
     if (
       (migrated.host === 'localhost' || migrated.host === '127.0.0.1') &&
       migrated.password === 'ichigo-local-lavalink'
     ) {
-      migrated.password = DEFAULT_CONFIG.password;
+      migrated.password = 'hotdogdot-local-lavalink';
     }
-    return migrated;
+    return normalizeLavalinkEndpoint(migrated);
   } catch {
     return DEFAULT_CONFIG;
   }
 }
 
 export function saveLavalinkConfig(config: LavalinkConfig): void {
-  localStorage.setItem(CONFIG_KEY, JSON.stringify(config));
+  localStorage.setItem(CONFIG_KEY, JSON.stringify(normalizeLavalinkEndpoint(config)));
 }
 
 export class LavalinkService {
@@ -49,8 +50,8 @@ export class LavalinkService {
   }
 
   public updateConfig(newConfig: LavalinkConfig) {
-    this.config = newConfig;
-    saveLavalinkConfig(newConfig);
+    this.config = normalizeLavalinkEndpoint(newConfig);
+    saveLavalinkConfig(this.config);
     this.reconnect();
   }
 
@@ -72,8 +73,7 @@ export class LavalinkService {
     if (!this.config.host) {
       return { success: false, message: 'ยังไม่ได้ระบุ Host ของ Lavalink Server (กรุณาเพิ่มเซิร์ฟเวอร์ในตั้งค่า)' };
     }
-    const protocol = this.config.secure ? 'https' : 'http';
-    const baseUrl = `${protocol}://${this.config.host}:${this.config.port}`;
+    const baseUrl = getLavalinkBaseUrl(this.config);
     logger.addLog('info', 'Lavalink', `Testing connection to ${baseUrl}...`);
     try {
       const response = await customFetch(`${baseUrl}/version`, {
@@ -100,8 +100,7 @@ export class LavalinkService {
       logger.addLog('warn', 'Lavalink', 'Cannot search: Lavalink server host is not configured');
       return [];
     }
-    const protocol = this.config.secure ? 'https' : 'http';
-    const baseUrl = `${protocol}://${this.config.host}:${this.config.port}`;
+    const baseUrl = getLavalinkBaseUrl(this.config);
 
     let identifier = query;
     if (!query.startsWith('http://') && !query.startsWith('https://')) {
@@ -197,8 +196,7 @@ export class LavalinkService {
       this.ws.close();
     }
 
-    const wsProtocol = this.config.secure ? 'wss' : 'ws';
-    const url = `${wsProtocol}://${this.config.host}:${this.config.port}/v4/websocket`;
+    const url = `${getLavalinkWebSocketUrl(this.config)}/v4/websocket`;
 
     try {
       this.ws = new WebSocket(url);

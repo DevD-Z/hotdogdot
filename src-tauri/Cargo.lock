@@ -1580,11 +1580,13 @@ name = "hotdogdot"
 version = "0.1.0"
 dependencies = [
  "discord-rich-presence",
+ "reqwest 0.12.28",
  "serde",
  "serde_json",
  "tauri",
  "tauri-build",
  "tauri-plugin-http",
+ "tauri-plugin-native-audio",
  "tauri-plugin-opener",
 ]
 
@@ -3939,6 +3941,16 @@ dependencies = [
  "tokio",
  "url",
  "urlpattern",
+]
+
+[[package]]
+name = "tauri-plugin-native-audio"
+version = "1.0.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f3b5810f836215ffb05383dc0fd6019e7d3d5b0eb7e84b6bb15efc55ca3c540e"
+dependencies = [
+ "tauri",
+ "tauri-plugin",
 ]
 
 [[package]]

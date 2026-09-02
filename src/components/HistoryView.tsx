@@ -37,7 +37,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
   };
 
   return (
-    <div className="p-6 space-y-6 pb-32">
+    <div className="p-4 sm:p-6 space-y-5 sm:space-y-6 pb-32">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
@@ -50,16 +50,16 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-col sm:flex-row gap-3">
           {/* Search inside history */}
-          <div className="relative">
+          <div className="relative flex-1">
             <Search className="w-4 h-4 absolute left-3 top-2.5 text-zinc-400" />
             <input
               type="text"
               value={filterQuery}
               onChange={(e) => setFilterQuery(e.target.value)}
               placeholder="ค้นหาในประวัติ..."
-              className="pl-9 pr-4 py-1.5 rounded-xl bg-zinc-900 border border-zinc-800 text-sm text-zinc-200 outline-none focus:border-rose-500/50"
+              className="w-full pl-9 pr-4 py-1.5 rounded-xl bg-zinc-900 border border-zinc-800 text-sm text-zinc-200 outline-none focus:border-rose-500/50"
             />
           </div>
 
@@ -84,7 +84,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
         </div>
       ) : (
         <div className="bg-zinc-900/50 border border-zinc-800/80 rounded-2xl overflow-hidden shadow-xl backdrop-blur-md">
-          <div className="grid grid-cols-12 px-6 py-3 text-xs font-semibold text-zinc-400 border-b border-zinc-800/80 uppercase tracking-wider">
+          <div className="mobile-list-header grid grid-cols-12 px-6 py-3 text-xs font-semibold text-zinc-400 border-b border-zinc-800/80 uppercase tracking-wider">
             <div className="col-span-1 text-center">#</div>
             <div className="col-span-6">ชื่อเพลง</div>
             <div className="col-span-3">ศิลปิน</div>
@@ -96,9 +96,9 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
             {filtered.map((item, index) => (
               <div
                 key={item.id}
-                className="grid grid-cols-12 px-6 py-3.5 items-center text-sm hover:bg-zinc-800/40 transition group"
+                className="mobile-list-row grid grid-cols-12 px-6 py-3.5 items-center text-sm hover:bg-zinc-800/40 transition group"
               >
-                <div className="col-span-1 text-center flex justify-center items-center">
+                <div className="mobile-list-index col-span-1 text-center flex justify-center items-center">
                   <span className="text-zinc-500 font-mono group-hover:hidden">{index + 1}</span>
                   <button
                     onClick={() => onPlayTrack(item.track)}
@@ -108,7 +108,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                   </button>
                 </div>
 
-                <div className="col-span-6 flex items-center gap-3.5 pr-4">
+                <div className="mobile-list-primary col-span-6 flex items-center gap-3.5 pr-4 min-w-0">
                   <img
                     src={item.track.artworkUrl || 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=300&h=300&fit=crop'}
                     alt={item.track.title}
@@ -127,17 +127,17 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                   </div>
                 </div>
 
-                <div className="col-span-3 text-zinc-400 truncate pr-4 text-xs font-medium">
+                <div className="mobile-list-secondary col-span-3 text-zinc-400 truncate pr-4 text-xs font-medium">
                   {item.track.author}
                 </div>
 
-                <div className="col-span-1 text-center">
+                <div className="mobile-list-meta col-span-1 text-center">
                   <span className="inline-block px-2.5 py-0.5 rounded-full bg-zinc-800 text-zinc-300 font-mono text-xs border border-zinc-700/50">
                     {item.playCount || 1} ครั้ง
                   </span>
                 </div>
 
-                <div className="col-span-1 text-right text-zinc-500 font-mono text-xs flex items-center justify-end gap-1">
+                <div className="mobile-list-actions col-span-1 text-right text-zinc-500 font-mono text-xs flex items-center justify-end gap-1">
                   <Clock className="w-3 h-3 text-zinc-600" />
                   <span>{formatTimestamp(item.playedAt)}</span>
                 </div>

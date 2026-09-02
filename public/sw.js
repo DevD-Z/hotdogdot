@@ -1,4 +1,4 @@
-const CACHE_NAME = 'hotdogdot-shell-v1';
+const CACHE_NAME = 'hotdogdot-shell-v2';
 const APP_SHELL = ['/', '/index.html', '/app-logo.png', '/manifest.webmanifest'];
 
 self.addEventListener('install', (event) => {
@@ -19,8 +19,10 @@ self.addEventListener('fetch', (event) => {
   event.respondWith(
     fetch(event.request)
       .then((response) => {
-        const copy = response.clone();
-        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+        if (response.ok) {
+          const copy = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+        }
         return response;
       })
       .catch(() => caches.match(event.request).then((cached) => cached || caches.match('/index.html')))

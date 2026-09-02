@@ -2,6 +2,10 @@ import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, Repeat, Shuffle, ListMusic, Loader2, Wand2, Mic2 } from 'lucide-react';
 import { Track } from '../types/music';
 import { logger } from '../services/logger';
+import { isNativeMobile, nativeAudio, nativeSourceFor } from '../services/nativeAudio';
+import { invoke } from '@tauri-apps/api/core';
+import { lavalinkService } from '../services/lavalink';
+import { getLavalinkBaseUrl } from '../services/lavalinkUrl';
 
 declare global {
   interface Window {
@@ -26,6 +30,7 @@ interface PlayerProps {
   isLyricsOpen?: boolean;
   onTimeUpdate?: (time: number) => void;
   seekTime?: number | null;
+  onPlaybackStateChange?: (playing: boolean) => void;
 }
 
 type PlaybackStatus = 'idle' | 'loading' | 'buffering' | 'playing' | 'paused' | 'error';
@@ -46,11 +51,12 @@ export const Player: React.FC<PlayerProps> = ({
   isLyricsOpen = false,
   onTimeUpdate,
   seekTime,
+  onPlaybackStateChange,
 }) => {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const ytPlayerRef = useRef<any>(null);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
-  const [, setYtReady] = useState(false);
+  const [ytReady, setYtReady] = useState(false);
 
   const [playbackStatus, setPlaybackStatus] = useState<PlaybackStatus>('idle');
 
@@ -60,6 +66,27 @@ export const Player: React.FC<PlayerProps> = ({
   const [isMuted, setIsMuted] = useState(false);
   const [isShuffle, setIsShuffle] = useState(false);
   const [isRepeat, setIsRepeat] = useState(false);
+  const [cachedNativeSource, setCachedNativeSource] = useState<string | null>(null);
+  const [nativeStreamFailed, setNativeStreamFailed] = useState(false);
+
+  // Player engines live longer than a React render. Keep their callbacks fresh
+  // without tearing down native/YouTube listeners whenever the parent renders.
+  const currentTrackRef = useRef(currentTrack);
+  const onTimeUpdateRef = useRef(onTimeUpdate);
+  const onTrackEndRef = useRef(onTrackEnd);
+  const onNextRef = useRef(onNext);
+  const onPreviousRef = useRef(onPrevious);
+  const onPlayPauseToggleRef = useRef(onPlayPauseToggle);
+  const onPlaybackStateChangeRef = useRef(onPlaybackStateChange);
+  const isRepeatRef = useRef(isRepeat);
+  currentTrackRef.current = currentTrack;
+  onTimeUpdateRef.current = onTimeUpdate;
+  onTrackEndRef.current = onTrackEnd;
+  onNextRef.current = onNext;
+  onPreviousRef.current = onPrevious;
+  onPlayPauseToggleRef.current = onPlayPauseToggle;
+  onPlaybackStateChangeRef.current = onPlaybackStateChange;
+  isRepeatRef.current = isRepeat;
 
   // Helper to extract YouTube ID
   const getYouTubeId = useCallback((track: Track | null): string | null => {
@@ -75,6 +102,33 @@ export const Player: React.FC<PlayerProps> = ({
   }, []);
 
   const ytId = getYouTubeId(currentTrack);
+  const nativeTrack = currentTrack && cachedNativeSource
+    ? { ...currentTrack, playbackUrl: cachedNativeSource }
+    : currentTrack;
+  const nativeSrc = nativeSourceFor(nativeTrack);
+  const resolvingNativeStream = isNativeMobile() && Boolean(ytId) && !nativeSrc && !nativeStreamFailed;
+  const webYtId = nativeSrc || resolvingNativeStream ? null : ytId;
+
+  useEffect(() => {
+    setCachedNativeSource(null);
+    setNativeStreamFailed(false);
+    if (!isNativeMobile() || !ytId || !currentTrack) return;
+    let cancelled = false;
+    const config = lavalinkService.getConfig();
+    setPlaybackStatus('loading');
+    void invoke<string>('cache_lavalink_youtube', {
+      videoId: ytId,
+      baseUrl: getLavalinkBaseUrl(config),
+      password: config.password,
+    }).then((source) => {
+      if (!cancelled) setCachedNativeSource(source);
+    }).catch((error) => {
+      if (cancelled) return;
+      logger.addLog('warn', 'Player', `Native YouTube stream unavailable: ${String(error)}`);
+      setNativeStreamFailed(true);
+    });
+    return () => { cancelled = true; };
+  }, [currentTrack?.identifier, ytId]);
 
   // Load YouTube IFrame API Script
   useEffect(() => {
@@ -105,18 +159,18 @@ export const Player: React.FC<PlayerProps> = ({
                 setPlaybackStatus('buffering');
               } else if (event.data === 0) {
                 setPlaybackStatus('idle');
-                if (isRepeat) {
+                if (isRepeatRef.current) {
                   ytPlayerRef.current?.seekTo(0);
                   ytPlayerRef.current?.playVideo();
                 } else {
-                  onTrackEnd();
+                  onTrackEndRef.current();
                 }
               }
             },
             onError: (event: any) => {
               logger.addLog('error', 'Player', `YouTube Player Error Code: ${event.data}`);
               setPlaybackStatus('error');
-              setTimeout(() => onNext(), 2000);
+              setTimeout(() => onNextRef.current(), 2000);
             },
           },
         });
@@ -135,12 +189,62 @@ export const Player: React.FC<PlayerProps> = ({
   }, []);
 
   const hasTrackEndedRef = useRef(false);
+  const nativeLoadRevisionRef = useRef(0);
+  const nativeHasPlayedRef = useRef(false);
+
+  // Native playback remains alive when the WebView is suspended in the background.
+  useEffect(() => {
+    if (!isNativeMobile()) return;
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+
+    void nativeAudio.listen((state) => {
+      if (disposed || !nativeSourceFor(currentTrackRef.current)) return;
+      setCurrentTime(state.currentTime || 0);
+      if (state.duration > 0) setDuration(state.duration);
+      onTimeUpdateRef.current?.(state.currentTime || 0);
+      setPlaybackStatus(state.status === 'ended' ? 'idle' : state.status);
+      if (state.isPlaying) {
+        nativeHasPlayedRef.current = true;
+        onPlaybackStateChangeRef.current?.(true);
+      } else if (state.status === 'ended' || (state.status === 'idle' && nativeHasPlayedRef.current)) {
+        onPlaybackStateChangeRef.current?.(false);
+      }
+
+      if (state.status === 'ended' && !hasTrackEndedRef.current) {
+        hasTrackEndedRef.current = true;
+        onTrackEndRef.current();
+      }
+    }).then((remove) => { unlisten = remove; }).catch((error) => {
+      logger.addLog('warn', 'Player', `Native audio listener unavailable: ${String(error)}`);
+    });
+
+    const reconcile = () => {
+      if (document.visibilityState === 'visible' && nativeSourceFor(currentTrackRef.current)) {
+        void nativeAudio.state().then((state) => {
+          setCurrentTime(state.currentTime || 0);
+          if (state.duration > 0) setDuration(state.duration);
+          setPlaybackStatus(state.status === 'ended' ? 'idle' : state.status);
+          if (state.isPlaying) onPlaybackStateChangeRef.current?.(true);
+          else if (state.status === 'ended' || (state.status === 'idle' && nativeHasPlayedRef.current)) onPlaybackStateChangeRef.current?.(false);
+        }).catch(() => undefined);
+      }
+    };
+    document.addEventListener('visibilitychange', reconcile);
+    return () => {
+      disposed = true;
+      unlisten?.();
+      document.removeEventListener('visibilitychange', reconcile);
+    };
+  }, []);
 
   // Handle external seek requests (e.g. clicking lyrics line)
   useEffect(() => {
     if (typeof seekTime === 'number' && seekTime >= 0) {
       setCurrentTime(seekTime);
-      if (ytPlayerRef.current && typeof ytPlayerRef.current.seekTo === 'function') {
+      if (nativeSrc) {
+        void nativeAudio.seekTo(seekTime).catch((error) => logger.addLog('error', 'Player', String(error)));
+      } else if (ytPlayerRef.current && typeof ytPlayerRef.current.seekTo === 'function') {
         ytPlayerRef.current.seekTo(seekTime, true);
       }
       if (audioRef.current) {
@@ -152,14 +256,14 @@ export const Player: React.FC<PlayerProps> = ({
   // Sync current time & duration with Auto Playhead Status Sync
   useEffect(() => {
     let interval: any;
-    if (ytId && isPlaying) {
+    if (webYtId && isPlaying) {
       interval = setInterval(() => {
         if (ytPlayerRef.current && typeof ytPlayerRef.current.getCurrentTime === 'function') {
           const curr = ytPlayerRef.current.getCurrentTime() || 0;
           const dur = ytPlayerRef.current.getDuration() || (currentTrack?.length ? currentTrack.length / 1000 : 0);
           setCurrentTime(curr);
           setDuration(dur);
-          onTimeUpdate?.(curr);
+          onTimeUpdateRef.current?.(curr);
 
           const state = typeof ytPlayerRef.current.getPlayerState === 'function' ? ytPlayerRef.current.getPlayerState() : -1;
           if (state === 1 || curr > 0.2) {
@@ -169,30 +273,42 @@ export const Player: React.FC<PlayerProps> = ({
           // Safety trigger for track ending
           if (dur > 5 && curr >= dur - 0.8 && !hasTrackEndedRef.current) {
             hasTrackEndedRef.current = true;
-            if (isRepeat) {
+            if (isRepeatRef.current) {
               ytPlayerRef.current?.seekTo(0);
               ytPlayerRef.current?.playVideo();
             } else {
-              onTrackEnd();
+              onTrackEndRef.current();
             }
           }
         }
       }, 400);
     }
     return () => clearInterval(interval);
-  }, [ytId, isPlaying, currentTrack, isRepeat, onTrackEnd]);
+  }, [webYtId, isPlaying, currentTrack, isRepeat, onTrackEnd]);
 
   // Handle Smooth Track Transitioning
   useEffect(() => {
-    if (!currentTrack) return;
+    if (!currentTrack || resolvingNativeStream || (!nativeSrc && webYtId && !ytReady)) return;
     hasTrackEndedRef.current = false;
 
-    const currentYtId = getYouTubeId(currentTrack);
+    const currentYtId = webYtId;
     logger.addLog('info', 'Player', `Loading track: "${currentTrack.title}"`, { ytId: currentYtId });
 
     setPlaybackStatus('loading');
 
-    if (currentYtId) {
+    if (nativeSrc) {
+      nativeHasPlayedRef.current = false;
+      if (audioRef.current) audioRef.current.pause();
+      ytPlayerRef.current?.pauseVideo?.();
+      const revision = ++nativeLoadRevisionRef.current;
+      void nativeAudio.prepare(nativeTrack!).then(() => {
+        if (revision === nativeLoadRevisionRef.current && isPlaying) return nativeAudio.play();
+      }).catch((error) => {
+        if (revision !== nativeLoadRevisionRef.current) return;
+        logger.addLog('error', 'Player', `Native playback failed: ${String(error)}`);
+        setPlaybackStatus('error');
+      });
+    } else if (currentYtId) {
       if (audioRef.current) audioRef.current.pause();
 
       if (ytPlayerRef.current && typeof ytPlayerRef.current.loadVideoById === 'function') {
@@ -218,11 +334,14 @@ export const Player: React.FC<PlayerProps> = ({
         }
       }
     }
-  }, [currentTrack, getYouTubeId]);
+  }, [currentTrack, ytReady, nativeSrc, webYtId, resolvingNativeStream]);
 
   // Play/Pause button toggle
   useEffect(() => {
-    if (ytId && ytPlayerRef.current) {
+    if (nativeSrc) {
+      const action = isPlaying ? nativeAudio.play() : nativeAudio.pause();
+      void action.catch((error) => logger.addLog('error', 'Player', `Native playback command failed: ${String(error)}`));
+    } else if (webYtId && ytPlayerRef.current) {
       if (isPlaying) {
         ytPlayerRef.current.playVideo?.();
       } else {
@@ -235,7 +354,7 @@ export const Player: React.FC<PlayerProps> = ({
         audioRef.current.pause?.();
       }
     }
-  }, [isPlaying, ytId]);
+  }, [isPlaying, webYtId, nativeSrc]);
 
   // Volume Change
   const handleVolumeChange = (newVol: number) => {
@@ -271,7 +390,9 @@ export const Player: React.FC<PlayerProps> = ({
     const newTime = parseFloat(e.target.value);
     setCurrentTime(newTime);
 
-    if (ytId && ytPlayerRef.current && typeof ytPlayerRef.current.seekTo === 'function') {
+    if (nativeSrc) {
+      void nativeAudio.seekTo(newTime).catch((error) => logger.addLog('error', 'Player', String(error)));
+    } else if (webYtId && ytPlayerRef.current && typeof ytPlayerRef.current.seekTo === 'function') {
       ytPlayerRef.current.seekTo(newTime, true);
     } else if (audioRef.current) {
       audioRef.current.currentTime = newTime;
@@ -287,24 +408,60 @@ export const Player: React.FC<PlayerProps> = ({
 
   const trackDuration = duration || (currentTrack?.length ? currentTrack.length / 1000 : 180);
 
+  // PWA/desktop media keys. Native mobile metadata is handled by the native player.
+  useEffect(() => {
+    if (!('mediaSession' in navigator) || isNativeMobile() || !currentTrack) return;
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: currentTrack.title,
+      artist: currentTrack.author,
+      artwork: currentTrack.artworkUrl ? [{ src: currentTrack.artworkUrl }] : undefined,
+    });
+    navigator.mediaSession.setActionHandler('play', () => onPlayPauseToggleRef.current());
+    navigator.mediaSession.setActionHandler('pause', () => onPlayPauseToggleRef.current());
+    navigator.mediaSession.setActionHandler('nexttrack', () => onNextRef.current());
+    navigator.mediaSession.setActionHandler('previoustrack', () => onPreviousRef.current());
+    navigator.mediaSession.setActionHandler('seekto', (details) => {
+      if (typeof details.seekTime !== 'number') return;
+      if (webYtId) ytPlayerRef.current?.seekTo?.(details.seekTime, true);
+      else if (audioRef.current) audioRef.current.currentTime = details.seekTime;
+    });
+    return () => {
+      for (const action of ['play', 'pause', 'nexttrack', 'previoustrack', 'seekto'] as MediaSessionAction[]) {
+        navigator.mediaSession.setActionHandler(action, null);
+      }
+    };
+  }, [currentTrack, webYtId]);
+
+  useEffect(() => {
+    if (!('mediaSession' in navigator) || isNativeMobile()) return;
+    navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused';
+    if (trackDuration > 0 && currentTime >= 0 && currentTime <= trackDuration) {
+      try {
+        navigator.mediaSession.setPositionState({ duration: trackDuration, position: currentTime, playbackRate: 1 });
+      } catch {
+        // Some browsers expose Media Session without position state support.
+      }
+    }
+  }, [isPlaying, currentTime, trackDuration]);
+
   return (
-    <div className="h-32 md:h-24 bg-slate-950/95 border-t border-slate-800/80 px-3 md:px-6 py-2 md:py-0 flex flex-wrap md:flex-nowrap items-center justify-between z-40 fixed bottom-16 md:bottom-0 left-0 right-0 backdrop-blur-xl">
+    <div className={`player-dock ${currentTrack ? 'has-track' : 'no-track'} h-32 md:h-24 bg-slate-950/95 border-t border-slate-800/80 px-3 md:px-6 py-2 md:py-0 flex flex-wrap md:flex-nowrap items-center justify-between z-40 fixed bottom-16 md:bottom-0 left-0 right-0 backdrop-blur-xl`}>
       {/* HTML Audio element & YT Player iframe */}
       <audio
         ref={audioRef}
         onTimeUpdate={() => {
-          if (audioRef.current && !ytId) {
+          if (audioRef.current && !webYtId && !nativeSrc) {
             const curr = audioRef.current.currentTime || 0;
             const dur = audioRef.current.duration || 0;
             setCurrentTime(curr);
             if (dur > 0 && !isNaN(dur)) {
               setDuration(dur);
             }
-            onTimeUpdate?.(curr);
+            onTimeUpdateRef.current?.(curr);
           }
         }}
         onLoadedMetadata={() => {
-          if (audioRef.current && !ytId) {
+          if (audioRef.current && !webYtId && !nativeSrc) {
             const dur = audioRef.current.duration || 0;
             if (dur > 0 && !isNaN(dur)) {
               setDuration(dur);
@@ -312,15 +469,15 @@ export const Player: React.FC<PlayerProps> = ({
           }
         }}
         onPlay={() => {
-          if (!ytId) setPlaybackStatus('playing');
+          if (!webYtId && !nativeSrc) setPlaybackStatus('playing');
         }}
         onPause={() => {
-          if (!ytId && audioRef.current && !audioRef.current.ended) {
+          if (!webYtId && !nativeSrc && audioRef.current && !audioRef.current.ended) {
             setPlaybackStatus('paused');
           }
         }}
         onEnded={() => {
-          if (!ytId) {
+          if (!webYtId && !nativeSrc) {
             setPlaybackStatus('idle');
             if (isRepeat) {
               if (audioRef.current) {
@@ -328,12 +485,12 @@ export const Player: React.FC<PlayerProps> = ({
                 audioRef.current.play().catch(console.error);
               }
             } else {
-              onTrackEnd();
+              onTrackEndRef.current();
             }
           }
         }}
         onError={() => {
-          if (!ytId) {
+          if (!webYtId && !nativeSrc) {
             logger.addLog('error', 'Player', `Failed to play audio file: ${currentTrack?.title}`);
             setPlaybackStatus('error');
           }
@@ -344,13 +501,18 @@ export const Player: React.FC<PlayerProps> = ({
         ref={iframeRef}
         id="yt-player-iframe-element"
         title="YouTube Audio Engine"
-        src={`https://www.youtube-nocookie.com/embed/${ytId || ''}?enablejsapi=1&autoplay=1&origin=${encodeURIComponent(window.location.origin)}`}
-        allow="autoplay"
+        src={`https://www.youtube-nocookie.com/embed/${webYtId || ''}?enablejsapi=1&autoplay=1&playsinline=1&origin=${encodeURIComponent(window.location.origin)}`}
+        allow="autoplay; encrypted-media; picture-in-picture"
         className="fixed bottom-0 right-0 w-2 h-2 opacity-0 pointer-events-none z-[-1] border-0"
       />
 
       {/* Left: Track Details & Animated Equalizer */}
-      <div className="flex items-center gap-3 md:gap-4 w-[calc(100%-88px)] md:w-1/3 min-w-0 md:min-w-[240px] order-1">
+      <button
+        type="button"
+        onClick={onToggleLyrics}
+        aria-label="เปิดตัวเล่นแบบเต็มหน้าจอ"
+        className="player-track text-left flex items-center gap-3 md:gap-4 w-[calc(100%-88px)] md:w-1/3 min-w-0 md:min-w-[240px] order-1 rounded-xl"
+      >
         {currentTrack ? (
           <>
             <div className="relative shrink-0 group">
@@ -395,10 +557,10 @@ export const Player: React.FC<PlayerProps> = ({
             </div>
           </div>
         )}
-      </div>
+      </button>
 
       {/* Middle: Playback Controls & Progress Bar */}
-      <div className="flex flex-col items-center gap-1 md:gap-2 max-w-xl w-full order-3 md:order-2">
+      <div className="player-controls flex flex-col items-center gap-1 md:gap-2 max-w-xl w-full order-3 md:order-2">
         <div className="flex items-center gap-3 md:gap-5">
           <button
             onClick={() => setIsShuffle(!isShuffle)}
@@ -468,11 +630,14 @@ export const Player: React.FC<PlayerProps> = ({
         </div>
 
         {/* Progress Timeline */}
-        <div className="w-full flex items-center gap-3">
+        <div className="player-timeline w-full flex items-center gap-3">
           <span className="text-[11px] font-medium text-zinc-500 w-10 text-right font-mono">
             {formatTime(currentTime)}
           </span>
           <div className="relative flex-1 flex items-center">
+            <div className="mini-progress" aria-hidden="true">
+              <span style={{ width: `${Math.min(100, Math.max(0, (currentTime / Math.max(trackDuration, 1)) * 100))}%` }} />
+            </div>
             <input
               type="range"
               min={0}
@@ -490,7 +655,7 @@ export const Player: React.FC<PlayerProps> = ({
       </div>
 
       {/* Right: Lyrics, Volume & Queue */}
-      <div className="flex items-center justify-end gap-1 md:gap-3 w-[88px] md:w-1/4 md:min-w-[200px] order-2 md:order-3">
+      <div className="player-actions flex items-center justify-end gap-1 md:gap-3 w-[88px] md:w-1/4 md:min-w-[200px] order-2 md:order-3">
         {/* Lyrics Button */}
         <button
           onClick={onToggleLyrics}

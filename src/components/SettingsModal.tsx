@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Server, CheckCircle2, AlertCircle, RefreshCw, Key, Globe, Hash, Zap } from 'lucide-react';
+import { X, Server, CheckCircle2, AlertCircle, RefreshCw, Key, Globe, Hash, Zap, Moon, Sun } from 'lucide-react';
 import { LavalinkConfig, LavalinkServerPreset } from '../types/music';
 import { getStoredLavalinkServers } from '../services/lavalinkPresets';
 
@@ -8,6 +8,8 @@ interface SettingsModalProps {
   onSave: (config: LavalinkConfig) => void;
   onClose: () => void;
   onTest: () => Promise<{ success: boolean; message: string }>;
+  theme: 'dark' | 'light';
+  onThemeChange: (theme: 'dark' | 'light') => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -15,6 +17,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onSave,
   onClose,
   onTest,
+  theme,
+  onThemeChange,
 }) => {
   const [host, setHost] = useState(config.host);
   const [port, setPort] = useState(config.port);
@@ -95,6 +99,27 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
           </div>
         )}
+
+        {/* Form Controls */}
+        <div className="space-y-2">
+          <span className="block text-xs font-semibold text-zinc-400 uppercase tracking-wider">Appearance</span>
+          <div className="grid grid-cols-2 gap-2" role="group" aria-label="เลือกธีม">
+            {(['dark', 'light'] as const).map((option) => {
+              const Icon = option === 'dark' ? Moon : Sun;
+              return (
+                <button
+                  key={option}
+                  type="button"
+                  aria-pressed={theme === option}
+                  onClick={() => onThemeChange(option)}
+                  className={`touch-target rounded-xl border flex items-center justify-center gap-2 text-sm ${theme === option ? 'border-sky-500 bg-sky-500/15 text-sky-300' : 'border-zinc-800 bg-zinc-950 text-zinc-400'}`}
+                >
+                  <Icon className="w-4 h-4" /> {option === 'dark' ? 'Dark' : 'Light'}
+                </button>
+              );
+            })}
+          </div>
+        </div>
 
         {/* Form Controls */}
         <div className="space-y-3 pt-1 border-t border-zinc-800/60">

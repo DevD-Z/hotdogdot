@@ -13,7 +13,13 @@
       "src": "/app-logo.png",
       "sizes": "1254x1254",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "/app-logo.png",
+      "sizes": "1254x1254",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ]
 }

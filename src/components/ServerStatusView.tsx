@@ -35,6 +35,7 @@ import {
   formatUptime,
 } from '../services/lavalinkStats';
 import { customFetch } from '../services/http';
+import { getLavalinkBaseUrl } from '../services/lavalinkUrl';
 
 interface ServerStatusResult {
   id: string;
@@ -91,8 +92,7 @@ export const ServerStatusView: React.FC<ServerStatusViewProps> = ({
       [server.id]: { id: server.id, isChecking: true, isOnline: false, latency: null }
     }));
 
-    const protocol = server.secure ? 'https' : 'http';
-    const url = `${protocol}://${server.host}:${server.port}/v4/loadtracks?identifier=ytsearch:pingtest`;
+    const url = `${getLavalinkBaseUrl(server)}/v4/loadtracks?identifier=ytsearch:pingtest`;
     const start = Date.now();
 
     try {

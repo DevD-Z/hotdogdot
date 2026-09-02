@@ -6,6 +6,7 @@
   "permissions": [
     "core:default",
     "opener:default",
+    "native-audio:default",
     {
       "identifier": "http:default",
       "allow": [

@@ -85,7 +85,7 @@ export const Header: React.FC<HeaderProps> = ({ onSearchSubmit, onOpenLocalFiles
   };
 
   return (
-    <header className="h-16 border-b border-slate-800/80 px-3 md:px-6 flex items-center gap-3 justify-between bg-slate-950/70 backdrop-blur-md sticky top-0 z-30 pt-[env(safe-area-inset-top)]">
+    <header className="app-header h-16 border-b border-slate-800/80 px-3 md:px-6 flex items-center gap-3 justify-between bg-slate-950/70 backdrop-blur-md sticky top-0 z-30 pt-[env(safe-area-inset-top)]">
       <img src="/app-logo.png" alt="hotdogdot logo" className="md:hidden w-9 h-9 rounded-xl object-cover shrink-0 ring-1 ring-sky-400/20" />
       {/* Navigation history controls */}
       <div className="hidden md:flex items-center gap-2">
@@ -114,7 +114,7 @@ export const Header: React.FC<HeaderProps> = ({ onSearchSubmit, onOpenLocalFiles
       </div>
 
       {/* Auto-search bar with YouTube/Apple Music style suggestions */}
-      <div ref={containerRef} className="relative w-full max-w-xl md:mx-4">
+      <div ref={containerRef} className="header-search relative w-full max-w-xl md:mx-4">
         <div className="relative flex items-center">
           <Search className="w-4 h-4 absolute left-3.5 text-slate-400 pointer-events-none" />
           <input
