@@ -13,7 +13,7 @@ export const AboutView: React.FC = () => (
     <section className="surface-card relative overflow-hidden p-5 sm:p-8">
       <div className="absolute -right-20 -top-20 w-72 h-72 rounded-full bg-sky-500/10 blur-3xl" />
       <div className="relative flex flex-col sm:flex-row items-center sm:items-start gap-5 sm:gap-7 text-center sm:text-left">
-        <img src="/app-logo.png" alt="hotdogdot logo" className="w-28 h-28 sm:w-32 sm:h-32 rounded-[2rem] object-cover ring-1 ring-sky-400/30 shadow-2xl shadow-sky-500/15" />
+        <img src="/znight.png" alt="hotdogdot logo" className="w-28 h-28 sm:w-32 sm:h-32 rounded-[2rem] object-cover ring-1 ring-sky-400/30 shadow-2xl shadow-sky-500/15" />
         <div className="min-w-0">
           <span className="inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold bg-sky-500/10 text-sky-300 ring-1 ring-sky-500/20"><Headphones className="w-3.5 h-3.5" /> Music player</span>
           <h1 className="mt-3 text-3xl sm:text-4xl font-black tracking-tight text-white">hotdogdot</h1>

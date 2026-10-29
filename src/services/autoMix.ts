@@ -77,27 +77,32 @@ export async function fetchAutoMixTracks(
   const candidates: Track[] = [];
   const seenIds = new Set<string>(existingIds);
 
-  for (const { query, source } of queries) {
+  // Run every tier at once. Awaiting the four Lavalink searches one after
+  // another cost several seconds, and handleNextTrack waits on this whole call
+  // whenever the queue has run dry — that delay was audible as a gap between
+  // songs.
+  const batches = await Promise.all(queries.map(({ query, source }) =>
+    lavalinkService.search(query, source).catch((err: any) => {
+      logger.addLog('warn', 'AutoMix', `Sub-query failed for "${query}": ${err?.message ?? err}`);
+      return [] as Track[];
+    })
+  ));
+
+  // Merge in query order so the highest-tier matches still land first.
+  for (const results of batches) {
     if (candidates.length >= desiredCount * 2) break;
 
-    try {
-      const results = await lavalinkService.search(query, source);
-      if (results && results.length > 0) {
-        for (const track of results) {
-          if (!track.identifier || seenIds.has(track.identifier)) continue;
+    for (const track of results) {
+      if (!track.identifier || seenIds.has(track.identifier)) continue;
 
-          // Check title similarity against current track and existing queue
-          const isDuplicate = existingTitles.some(t => isTitleSimilar(t, track.title)) ||
-            candidates.some(c => isTitleSimilar(c.title, track.title));
+      // Check title similarity against current track and existing queue
+      const isDuplicate = existingTitles.some(t => isTitleSimilar(t, track.title)) ||
+        candidates.some(c => isTitleSimilar(c.title, track.title));
 
-          if (!isDuplicate) {
-            seenIds.add(track.identifier);
-            candidates.push(track);
-          }
-        }
+      if (!isDuplicate) {
+        seenIds.add(track.identifier);
+        candidates.push(track);
       }
-    } catch (err: any) {
-      logger.addLog('warn', 'AutoMix', `Sub-query failed for "${query}": ${err.message}`);
     }
   }
 

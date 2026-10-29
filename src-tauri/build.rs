@@ -12,6 +12,8 @@ fn env_file_value(key: &str) -> Option<String> {
 
 fn main() {
     println!("cargo:rerun-if-changed=../.env");
+    println!("cargo:rerun-if-changed=icons/icon.ico");
+    println!("cargo:rerun-if-changed=tauri.conf.json");
     let discord_client_id = env::var("DISCORD_CLIENT_ID")
         .ok()
         .filter(|value| !value.trim().is_empty())

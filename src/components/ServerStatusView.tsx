@@ -264,7 +264,7 @@ export const ServerStatusView: React.FC<ServerStatusViewProps> = ({
           </div>
           <h3 className="text-xl font-bold text-white">ยังไม่มี Lavalink Server ในระบบ</h3>
           <p className="text-slate-400 text-sm leading-relaxed">
-            ระบบเปิดโอกาสให้คุณเชื่อมต่อเซิร์ฟเวอร์ส่วนตัวด้วยตนเอง กรุณากดปุ่ม <strong>"เพิ่ม Server ใหม่"</strong> เพื่อใส่ Host, Port และ Password ของเซิร์ฟเวอร์ที่คุณเลือกใช้ หรือเปิดฟังเพลงจากไฟล์ MP3 ในเครื่องได้ทันที
+            ระบบเปิดโอกาสให้คุณเชื่อมต่อเซิร์ฟเวอร์ส่วนตัวด้วยตนเอง กรุณากดปุ่ม <strong>"เพิ่ม Server ใหม่"</strong> เพื่อใส่ Host, Port และ Password ของเซิร์ฟเวอร์ที่คุณเลือกใช้
           </p>
           <button
             onClick={() => setIsAddModalOpen(true)}

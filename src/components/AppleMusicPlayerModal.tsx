@@ -105,7 +105,7 @@ export const AppleMusicPlayerModal: React.FC<AppleMusicPlayerModalProps> = ({
       {/* Background Subtle Glow Mesh */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none opacity-20">
         <img
-          src={currentTrack.artworkUrl || '/app-logo.png'}
+          src={currentTrack.artworkUrl || '/znight.png'}
           alt=""
           className="w-full h-full object-cover blur-3xl scale-150"
         />
@@ -156,7 +156,7 @@ export const AppleMusicPlayerModal: React.FC<AppleMusicPlayerModalProps> = ({
             {/* Album Cover */}
             <div className="relative">
               <img
-                src={currentTrack.artworkUrl || '/app-logo.png'}
+                src={currentTrack.artworkUrl || '/znight.png'}
                 alt={currentTrack.title}
                 className="w-52 h-52 sm:w-60 sm:h-60 mx-auto rounded-2xl object-cover shadow-lg shadow-sky-100 border border-slate-100 group-hover:scale-[1.02] transition-transform duration-300"
               />

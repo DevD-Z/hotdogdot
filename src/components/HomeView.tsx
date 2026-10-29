@@ -1,12 +1,11 @@
 import React from 'react';
 import { Track } from '../types/music';
-import { ArrowRight, Clock3, Disc3, FolderOpen, Play, Radio, Sparkles } from 'lucide-react';
+import { ArrowRight, Clock3, Disc3, Play, Radio, Sparkles } from 'lucide-react';
 
 interface HomeViewProps {
   onPlayTrack: (track: Track) => void;
   onSearchQuery: (query: string) => void;
   recentlyPlayed: Track[];
-  onOpenLocalFiles?: () => void;
 }
 
 const stations = [
@@ -16,7 +15,7 @@ const stations = [
   { title: 'Global 50', caption: 'เพลงยอดนิยมทั่วโลก', query: 'global top hits 2026', tone: 'station-amber' },
 ];
 
-export const HomeView: React.FC<HomeViewProps> = ({ onPlayTrack, onSearchQuery, recentlyPlayed, onOpenLocalFiles }) => (
+export const HomeView: React.FC<HomeViewProps> = ({ onPlayTrack, onSearchQuery, recentlyPlayed }) => (
   <div className="mobile-home page-container">
     <section className="home-greeting">
       <div>
@@ -24,7 +23,6 @@ export const HomeView: React.FC<HomeViewProps> = ({ onPlayTrack, onSearchQuery, 
         <h1>ฟังอะไรดีวันนี้?</h1>
         <p>เลือกเพลงที่ชอบ แล้วให้ Auto Mix ดูแลเพลงถัดไป</p>
       </div>
-      <button className="avatar-action" onClick={onOpenLocalFiles} aria-label="เปิดเพลงในเครื่อง"><FolderOpen size={20} /></button>
     </section>
 
     <section className="daily-mix-card">
@@ -34,7 +32,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onPlayTrack, onSearchQuery, 
         <p>เพลงใหม่ เพลงคุ้นเคย และบรรยากาศที่เข้ากับคุณ</p>
         <button onClick={() => onSearchQuery('เพลงใหม่มาแรง mix')}><Play size={18} fill="currentColor" /> เริ่มฟัง</button>
       </div>
-      <div className="daily-mix-art"><img src="/app-logo.png" alt="Daily Discovery" /><span className="vinyl-ring" /></div>
+      <div className="daily-mix-art"><img src="/znight.png" alt="Daily Discovery" /><span className="vinyl-ring" /></div>
     </section>
 
     <section className="content-section">
@@ -54,7 +52,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onPlayTrack, onSearchQuery, 
         <div className="recent-rail">
           {recentlyPlayed.slice(0, 10).map((track) => (
             <button key={track.identifier} className="recent-card" onClick={() => onPlayTrack(track)}>
-              <span className="recent-art"><img src={track.artworkUrl || '/app-logo.png'} alt="" /><i><Play size={17} fill="currentColor" /></i></span>
+              <span className="recent-art"><img src={track.artworkUrl || '/znight.png'} alt="" /><i><Play size={17} fill="currentColor" /></i></span>
               <strong>{track.title}</strong><small>{track.author}</small>
             </button>
           ))}

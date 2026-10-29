@@ -10,3 +10,12 @@ services:
         value: 10000
       - key: LAVALINK_SERVER_PASSWORD
         sync: false
+      # YouTube bot-checks datacenter IPs, so a hosted node can search but fails
+      # to extract playback formats until it authenticates. Set these in the
+      # Render dashboard; never commit the refresh token.
+      - key: YOUTUBE_OAUTH_ENABLED
+        sync: false
+      - key: YOUTUBE_OAUTH_REFRESH_TOKEN
+        sync: false
+      - key: YOUTUBE_OAUTH_SKIP_INITIALIZATION
+        value: "true"

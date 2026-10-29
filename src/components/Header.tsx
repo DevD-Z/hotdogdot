@@ -1,15 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, X, Clock, TrendingUp, Sparkles, ChevronLeft, ChevronRight, FolderOpen } from 'lucide-react';
+import { Search, X, Clock, TrendingUp, Sparkles, Settings } from 'lucide-react';
 import { getSearchSuggestions } from '../services/searchSuggestions';
 import { getSearchHistory, addToSearchHistory } from '../services/history';
 
 interface HeaderProps {
   onSearchSubmit: (query: string) => void;
   isConnected?: boolean;
-  onOpenLocalFiles?: () => void;
+  onOpenSettings?: () => void;
+  accentColor?: string;
 }
 
-export const Header: React.FC<HeaderProps> = ({ onSearchSubmit, onOpenLocalFiles }) => {
+export const Header: React.FC<HeaderProps> = ({ onSearchSubmit, onOpenSettings, accentColor }) => {
   const [query, setQuery] = useState('');
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [searchHistory, setSearchHistory] = useState<string[]>([]);
@@ -86,33 +87,7 @@ export const Header: React.FC<HeaderProps> = ({ onSearchSubmit, onOpenLocalFiles
 
   return (
     <header className="app-header h-16 border-b border-slate-800/80 px-3 md:px-6 flex items-center gap-3 justify-between bg-slate-950/70 backdrop-blur-md sticky top-0 z-30 pt-[env(safe-area-inset-top)]">
-      <img src="/app-logo.png" alt="hotdogdot logo" className="md:hidden w-9 h-9 rounded-xl object-cover shrink-0 ring-1 ring-sky-400/20" />
-      {/* Navigation history controls */}
-      <div className="hidden md:flex items-center gap-2">
-        <button
-          className="w-8 h-8 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-800 transition"
-          title="Back"
-        >
-          <ChevronLeft className="w-4 h-4" />
-        </button>
-        <button
-          className="w-8 h-8 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-800 transition"
-          title="Forward"
-        >
-          <ChevronRight className="w-4 h-4" />
-        </button>
-        {onOpenLocalFiles && (
-          <button
-            onClick={onOpenLocalFiles}
-            className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-sky-500/10 border border-sky-500/30 text-sky-300 hover:bg-sky-500/20 text-xs font-semibold transition active:scale-95 ml-2"
-            title="เปิดไฟล์ MP3 จากในเครื่อง"
-          >
-            <FolderOpen className="w-3.5 h-3.5" />
-            <span>เปิดไฟล์ MP3</span>
-          </button>
-        )}
-      </div>
-
+      <img src="/znight.png" alt="hotdogdot logo" className="md:hidden w-9 h-9 rounded-xl object-cover shrink-0 ring-1 ring-sky-400/20" />
       {/* Auto-search bar with YouTube/Apple Music style suggestions */}
       <div ref={containerRef} className="header-search relative w-full max-w-xl md:mx-4">
         <div className="relative flex items-center">
@@ -211,6 +186,24 @@ export const Header: React.FC<HeaderProps> = ({ onSearchSubmit, onOpenLocalFiles
           </div>
         )}
       </div>
+
+      {/* Right Controls: Quick Theme & Settings Access */}
+      {onOpenSettings && (
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            onClick={onOpenSettings}
+            className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-slate-900/90 hover:bg-slate-800 border border-slate-800 text-xs font-semibold text-slate-200 transition active:scale-95 shadow-sm group"
+            title="ปรับแต่งธีมสีและโหมดการแสดงผล (Theme & Settings)"
+          >
+            <span
+              className="w-3.5 h-3.5 rounded-full ring-2 ring-white/20 shrink-0 group-hover:scale-110 transition-transform"
+              style={{ backgroundColor: accentColor || '#0ea5e9' }}
+            />
+            <span className="hidden sm:inline">ปรับแต่งธีม</span>
+            <Settings className="w-3.5 h-3.5 text-slate-400 group-hover:rotate-45 transition-transform" />
+          </button>
+        </div>
+      )}
     </header>
   );
 };

@@ -1,27 +1,22 @@
 import { LavalinkServerPreset } from '../types/music';
 import { normalizeLavalinkEndpoint } from './lavalinkUrl';
 
-// Default servers set to empty - Users must provide their own server settings
+const ENV_LAVALINK_PASSWORD =
+  import.meta.env.LAVALINK_SERVER_PASSWORD ||
+  import.meta.env.VITE_LAVALINK_SERVER_PASSWORD ||
+  import.meta.env.VITE_LAVALINK_PASSWORD ||
+  'vbACVyNIWpg1MquLE1j7ZiLEK9fwBA8_yCFQ0_bRFkWWp2LB';
+
 export const PUBLIC_LAVALINK_SERVERS: LavalinkServerPreset[] = [
   {
     id: 'hotdogdot-main',
     name: 'hotdogdot Lavalink',
     host: 'hotdogdot-lavalink.onrender.com',
     port: 443,
-    password: '',
+    password: ENV_LAVALINK_PASSWORD,
     secure: true,
     location: 'Render Cloud',
-    description: 'เซิร์ฟเวอร์หลักของ hotdogdot (กรอกรหัสผ่านในหน้าตั้งค่า)',
-  },
-  {
-    id: 'local-lavalink',
-    name: 'Local Lavalink',
-    host: 'localhost',
-    port: 2333,
-    password: 'hotdogdot-local-lavalink',
-    secure: false,
-    location: 'This device',
-    description: 'Lavalink v4 node bundled with hotdogdot via Docker',
+    description: 'เซิร์ฟเวอร์หลักของ hotdogdot',
   },
 ];
 
@@ -32,10 +27,21 @@ export function getStoredLavalinkServers(): LavalinkServerPreset[] {
     const raw = localStorage.getItem(ALL_SERVERS_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) {
-        const normalized = parsed.map(server => normalizeLavalinkEndpoint(server as LavalinkServerPreset));
-        localStorage.setItem(ALL_SERVERS_KEY, JSON.stringify(normalized));
-        return normalized;
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        const filtered = parsed.filter(
+          server => server.host !== 'localhost' && server.host !== '127.0.0.1'
+        );
+        if (filtered.length > 0) {
+          const normalized = filtered.map(server => {
+            const norm = normalizeLavalinkEndpoint(server as LavalinkServerPreset);
+            if (norm.host === 'hotdogdot-lavalink.onrender.com' && (!norm.password || norm.password === '')) {
+              norm.password = ENV_LAVALINK_PASSWORD;
+            }
+            return norm;
+          });
+          localStorage.setItem(ALL_SERVERS_KEY, JSON.stringify(normalized));
+          return normalized;
+        }
       }
     }
   } catch {

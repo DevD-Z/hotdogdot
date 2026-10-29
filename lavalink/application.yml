@@ -42,15 +42,15 @@ plugins:
       refreshToken: "${YOUTUBE_OAUTH_REFRESH_TOKEN:}"
       skipInitialization: "${YOUTUBE_OAUTH_SKIP_INITIALIZATION:true}"
     clients:
+      # Keep this list short. The plugin tries clients in order and only gives up
+      # after the last one, so every extra entry is added latency on any track it
+      # cannot resolve — nine clients took over 40s to fail. MUSIC and WEB cover
+      # search, ANDROID_VR is the most reliable for audio formats, and
+      # WEBEMBEDDED is the fallback for embeddable-only videos.
       - MUSIC
-      - TV
       - ANDROID_VR
-      - ANDROID_MUSIC
-      - IOS
-      - MWEB
       - WEB
       - WEBEMBEDDED
-      - TVHTML5_SIMPLY
 
 logging:
   level:

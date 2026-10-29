@@ -15,64 +15,71 @@ export const SplashScreen: React.FC<SplashScreenProps> = ({ onComplete }) => {
 
   useEffect(() => {
     logger.addLog('info', 'System', 'Startup sequence initiated...');
-    runStartupChecks();
-  }, []);
+    let completed = false;
 
-  const runStartupChecks = async () => {
-    const serversToTest = getStoredLavalinkServers();
-
-    if (serversToTest.length === 0) {
-      logger.addLog('info', 'System', 'No Lavalink servers configured in presets. Ready for user input or local MP3 mode.');
-      await new Promise(r => setTimeout(r, 800));
+    const finish = (server?: LavalinkServerPreset) => {
+      if (completed) return;
+      completed = true;
       setIsFadingOut(true);
       setTimeout(() => {
-        onComplete();
-      }, 600);
-      return;
-    }
+        onComplete(server);
+      }, 500);
+    };
 
-    const checkPromises = serversToTest.map(async (server) => {
-      const url = `${getLavalinkBaseUrl(server)}/v4/loadtracks?identifier=ytsearch:music`;
-      const start = Date.now();
+    // Hard fallback timeout: splash NEVER blocks for more than 1.5 seconds
+    const fallbackTimer = setTimeout(() => {
+      const servers = getStoredLavalinkServers();
+      finish(servers[0]);
+    }, 1500);
 
+    const runStartupChecks = async () => {
       try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 4000);
+        const serversToTest = getStoredLavalinkServers();
+        if (serversToTest.length === 0) {
+          finish();
+          return;
+        }
 
-        const res = await customFetch(url, {
-          headers: {
-            'Authorization': server.password,
-            'Client-Name': 'Lavalink/4.0.0',
-            'Accept': 'application/json',
-          },
-          signal: controller.signal,
+        const quickCheck = serversToTest.map(async (server) => {
+          const url = `${getLavalinkBaseUrl(server)}/version`;
+          const start = Date.now();
+          try {
+            const res = await customFetch(url, {
+              headers: { 'Authorization': server.password },
+            });
+            const latency = Date.now() - start;
+            return { server, latency: res.ok ? latency : null, isOnline: res.ok };
+          } catch {
+            return { server, latency: null, isOnline: false };
+          }
         });
-        clearTimeout(timeoutId);
 
-        const latency = Date.now() - start;
-        const isOnline = res.ok || res.status === 429 || res.status === 200;
-        return { server, latency: isOnline ? latency : null, isOnline };
+        // Wait max 800ms for quick version ping
+        const results = await Promise.race([
+          Promise.all(quickCheck),
+          new Promise<Array<{ server: LavalinkServerPreset; latency: number | null; isOnline: boolean }>>(r =>
+            setTimeout(() => r([]), 800)
+          ),
+        ]);
+
+        const onlineServers = results.filter(r => r.isOnline && r.latency !== null).sort((a, b) => (a.latency || 9999) - (b.latency || 9999));
+        const chosen = onlineServers.length > 0 ? onlineServers[0].server : serversToTest[0];
+        
+        clearTimeout(fallbackTimer);
+        finish(chosen);
       } catch {
-        return { server, latency: null, isOnline: false };
+        clearTimeout(fallbackTimer);
+        const servers = getStoredLavalinkServers();
+        finish(servers[0]);
       }
-    });
+    };
 
-    const results = await Promise.all(checkPromises);
-    const onlineServers = results.filter(r => r.isOnline && r.latency !== null).sort((a, b) => (a.latency || 9999) - (b.latency || 9999));
+    runStartupChecks();
 
-    let chosen = serversToTest[0];
-    if (onlineServers.length > 0) {
-      chosen = onlineServers[0].server;
-    }
-
-    // Brief delay for clean fade transition
-    await new Promise(r => setTimeout(r, 1000));
-
-    setIsFadingOut(true);
-    setTimeout(() => {
-      onComplete(chosen);
-    }, 600);
-  };
+    return () => {
+      clearTimeout(fallbackTimer);
+    };
+  }, []);
 
   return (
     <div
@@ -87,7 +94,7 @@ export const SplashScreen: React.FC<SplashScreenProps> = ({ onComplete }) => {
         {/* App Icon */}
         <div className="relative">
           <img
-            src="/app-logo.png"
+            src="/znight.png"
             alt="hotdogdot logo"
             className="w-24 h-24 rounded-3xl object-cover shadow-2xl shadow-sky-500/40 border-2 border-sky-500/30"
           />

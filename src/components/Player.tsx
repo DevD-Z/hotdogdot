@@ -2,7 +2,8 @@ import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, Repeat, Shuffle, ListMusic, Loader2, Wand2, Mic2 } from 'lucide-react';
 import { Track } from '../types/music';
 import { logger } from '../services/logger';
-import { isNativeMobile, nativeAudio, nativeSourceFor } from '../services/nativeAudio';
+import { isAndroidWebView, isNativeMobile, nativeAudio, nativeSourceFor } from '../services/nativeAudio';
+import { publishAndroidMedia, setAndroidMediaCommandHandler, usesAndroidMediaBridge } from '../services/androidMedia';
 import { invoke } from '@tauri-apps/api/core';
 import { lavalinkService } from '../services/lavalink';
 import { getLavalinkBaseUrl } from '../services/lavalinkUrl';
@@ -35,6 +36,26 @@ interface PlayerProps {
 
 type PlaybackStatus = 'idle' | 'loading' | 'buffering' | 'playing' | 'paused' | 'error';
 
+/**
+ * A node either can extract YouTube audio formats or it cannot, and that does not
+ * change between songs. Retrying the native path per track made every song on
+ * Android wait for the proxy to walk its whole client list — measured at roughly
+ * 18s — before the WebView engine took over. Two failures in a row is enough to
+ * tell a broken node from one transient blip.
+ */
+const NATIVE_FAILURE_LIMIT = 2;
+
+/**
+ * How many consecutive times the embed may be nudged back into playing after it
+ * pauses itself in the background. Bounded so a genuine pause — from the
+ * notification, a phone call, another app taking audio focus — always wins, and
+ * so a hard block cannot turn into an endless pause/play fight.
+ */
+const MAX_BACKGROUND_RESUMES = 3;
+
+/** Playback that survives this long after a nudge refills the budget above. */
+const BACKGROUND_RESUME_CREDIT_MS = 3000;
+
 export const Player: React.FC<PlayerProps> = ({
   currentTrack,
   isPlaying,
@@ -55,7 +76,7 @@ export const Player: React.FC<PlayerProps> = ({
 }) => {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const ytPlayerRef = useRef<any>(null);
-  const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const ytHostRef = useRef<HTMLDivElement | null>(null);
   const [ytReady, setYtReady] = useState(false);
 
   const [playbackStatus, setPlaybackStatus] = useState<PlaybackStatus>('idle');
@@ -68,6 +89,20 @@ export const Player: React.FC<PlayerProps> = ({
   const [isRepeat, setIsRepeat] = useState(false);
   const [cachedNativeSource, setCachedNativeSource] = useState<{ trackId: string; source: string } | null>(null);
   const [nativeStreamFailedFor, setNativeStreamFailedFor] = useState<string | null>(null);
+  const [nativeStreamingDisabled, setNativeStreamingDisabled] = useState(false);
+  const nativeFailureStreakRef = useRef(0);
+
+  const noteNativeFailure = useCallback((trackId: string | undefined) => {
+    if (trackId) setNativeStreamFailedFor(trackId);
+    nativeFailureStreakRef.current += 1;
+    if (nativeFailureStreakRef.current < NATIVE_FAILURE_LIMIT) return;
+    setNativeStreamingDisabled((already) => {
+      if (!already) {
+        logger.addLog('warn', 'Player', 'Native background playback disabled for this session: the Lavalink node cannot serve audio streams. Playback stays in the WebView, which Android stops when the screen locks.');
+      }
+      return true;
+    });
+  }, []);
 
   // Player engines live longer than a React render. Keep their callbacks fresh
   // without tearing down native/YouTube listeners whenever the parent renders.
@@ -79,6 +114,7 @@ export const Player: React.FC<PlayerProps> = ({
   const onPlayPauseToggleRef = useRef(onPlayPauseToggle);
   const onPlaybackStateChangeRef = useRef(onPlaybackStateChange);
   const isRepeatRef = useRef(isRepeat);
+  const isPlayingRef = useRef(isPlaying);
   currentTrackRef.current = currentTrack;
   onTimeUpdateRef.current = onTimeUpdate;
   onTrackEndRef.current = onTrackEnd;
@@ -87,6 +123,13 @@ export const Player: React.FC<PlayerProps> = ({
   onPlayPauseToggleRef.current = onPlayPauseToggle;
   onPlaybackStateChangeRef.current = onPlaybackStateChange;
   isRepeatRef.current = isRepeat;
+  isPlayingRef.current = isPlaying;
+
+  // The embedded YouTube player pauses itself when the page is hidden, which on a
+  // locked screen means silence even though the WebView is still running. Nudge it
+  // back, but never in a tight loop — see MAX_BACKGROUND_RESUMES.
+  const backgroundResumesRef = useRef(0);
+  const backgroundResumeAtRef = useRef(0);
 
   // Helper to extract YouTube ID
   const getYouTubeId = useCallback((track: Track | null): string | null => {
@@ -109,12 +152,15 @@ export const Player: React.FC<PlayerProps> = ({
     ? { ...currentTrack, playbackUrl: cachedSource }
     : currentTrack;
   const nativeSrc = nativeSourceFor(nativeTrack);
+  const nativeSrcRef = useRef<string | null>(nativeSrc);
+  nativeSrcRef.current = nativeSrc;
   const resolvingNativeStream = isNativeMobile() && Boolean(ytId) && !nativeSrc
+    && !nativeStreamingDisabled
     && nativeStreamFailedFor !== currentTrack?.identifier;
   const webYtId = nativeSrc || resolvingNativeStream ? null : ytId;
 
   useEffect(() => {
-    if (!isNativeMobile() || !ytId || !currentTrack) return;
+    if (!isNativeMobile() || !ytId || !currentTrack || nativeStreamingDisabled) return;
     let cancelled = false;
     const config = lavalinkService.getConfig();
     // Stop the previous native item immediately. Waiting for the next stream
@@ -124,7 +170,7 @@ export const Player: React.FC<PlayerProps> = ({
     setCurrentTime(0);
     setDuration(currentTrack.length ? currentTrack.length / 1000 : 0);
     setPlaybackStatus('loading');
-    void invoke<string>('cache_lavalink_youtube', {
+    void invoke<string>('prepare_lavalink_stream', {
       videoId: ytId,
       baseUrl: getLavalinkBaseUrl(config),
       password: config.password,
@@ -133,26 +179,40 @@ export const Player: React.FC<PlayerProps> = ({
     }).catch((error) => {
       if (cancelled) return;
       logger.addLog('warn', 'Player', `Native YouTube stream unavailable: ${String(error)}`);
-      setNativeStreamFailedFor(currentTrack.identifier);
+      noteNativeFailure(currentTrack.identifier);
     });
     return () => { cancelled = true; };
-  }, [currentTrack?.identifier, ytId]);
+  }, [currentTrack?.identifier, ytId, nativeStreamingDisabled]);
 
-  // Load YouTube IFrame API Script
+  // Load the YouTube IFrame API and build the player exactly once. The API owns
+  // its iframe from here on and every song switch goes through loadVideoById.
+  // React used to re-point the iframe `src` on each track, which forced the
+  // embed (roughly a megabyte of player JS) to download and redo its jsapi
+  // handshake before anything could play — the main reason songs took seconds
+  // to start.
   useEffect(() => {
     logger.addLog('info', 'Player', 'Initializing YouTube Engine...');
-
-    if (!window.YT) {
-      const tag = document.createElement('script');
-      tag.src = 'https://www.youtube.com/iframe_api';
-      const firstScriptTag = document.getElementsByTagName('script')[0];
-      firstScriptTag?.parentNode?.insertBefore(tag, firstScriptTag);
-    }
+    let disposed = false;
 
     const createPlayerInstance = () => {
-      if (!iframeRef.current) return;
+      if (disposed || ytPlayerRef.current || !ytHostRef.current) return;
       try {
-        ytPlayerRef.current = new window.YT.Player(iframeRef.current, {
+        ytPlayerRef.current = new window.YT.Player(ytHostRef.current, {
+          host: 'https://www.youtube-nocookie.com',
+          width: '2',
+          height: '2',
+          playerVars: {
+            enablejsapi: 1,
+            autoplay: 1,
+            playsinline: 1,
+            controls: 0,
+            disablekb: 1,
+            fs: 0,
+            rel: 0,
+            iv_load_policy: 3,
+            modestbranding: 1,
+            origin: window.location.origin,
+          },
           events: {
             onReady: () => {
               logger.addLog('success', 'Player', 'YouTube Player Engine Ready!');
@@ -163,6 +223,30 @@ export const Player: React.FC<PlayerProps> = ({
                 setPlaybackStatus('playing');
               } else if (event.data === 2) {
                 setPlaybackStatus('paused');
+                // Chromium suspends the embed on screen-off and on audio-focus
+                // loss. `isPlayingRef` is still true then — a real pause flips it
+                // first — so a bounded nudge only ever fights the machine.
+                // Gating this on a hidden document used to work, but the activity
+                // now reports the WebView as visible so background audio survives
+                // at all, which made that condition permanently false.
+                //
+                // A nudge whose playback then held for a while was not a futile
+                // fight, so it earns a fresh budget. Measured on CPH1937: one
+                // locked screen needed two recoveries in the first 13s and the
+                // second one carried 90s of audio, so a flat per-track budget of
+                // three would have run out part-way through a normal session.
+                if (Date.now() - backgroundResumeAtRef.current > BACKGROUND_RESUME_CREDIT_MS) {
+                  backgroundResumesRef.current = 0;
+                }
+                if (
+                  isPlayingRef.current
+                  && !nativeSrcRef.current
+                  && backgroundResumesRef.current < MAX_BACKGROUND_RESUMES
+                ) {
+                  backgroundResumesRef.current += 1;
+                  backgroundResumeAtRef.current = Date.now();
+                  ytPlayerRef.current?.playVideo?.();
+                }
               } else if (event.data === 3) {
                 setPlaybackStatus('buffering');
               } else if (event.data === 0) {
@@ -190,10 +274,20 @@ export const Player: React.FC<PlayerProps> = ({
     if (window.YT && window.YT.Player) {
       createPlayerInstance();
     } else {
+      const previousReady = window.onYouTubeIframeAPIReady;
       window.onYouTubeIframeAPIReady = () => {
+        previousReady?.();
         createPlayerInstance();
       };
+      if (!document.querySelector('script[src*="youtube.com/iframe_api"]')) {
+        const tag = document.createElement('script');
+        tag.src = 'https://www.youtube.com/iframe_api';
+        tag.async = true;
+        document.head.appendChild(tag);
+      }
     }
+
+    return () => { disposed = true; };
   }, []);
 
   const hasTrackEndedRef = useRef(false);
@@ -207,12 +301,22 @@ export const Player: React.FC<PlayerProps> = ({
     let unlisten: (() => void) | undefined;
 
     void nativeAudio.listen((state) => {
-      if (disposed || !nativeSourceFor(currentTrackRef.current)) return;
+      if (disposed || !nativeSrcRef.current) return;
       setCurrentTime(state.currentTime || 0);
       if (state.duration > 0) setDuration(state.duration);
       onTimeUpdateRef.current?.(state.currentTime || 0);
       setPlaybackStatus(state.status === 'ended' ? 'idle' : state.status);
+      if (state.status === 'error') {
+        const failedTrack = currentTrackRef.current;
+        logger.addLog('warn', 'Player', `Native stream failed, using YouTube fallback: ${state.error || 'unknown error'}`);
+        setCachedNativeSource(null);
+        noteNativeFailure(failedTrack?.identifier);
+        return;
+      }
       if (state.isPlaying) {
+        // Native audio really is producing sound, so the node can serve streams
+        // after all. Forget any earlier failures.
+        nativeFailureStreakRef.current = 0;
         nativeHasPlayedRef.current = true;
         onPlaybackStateChangeRef.current?.(true);
       } else if (state.status === 'ended' || (state.status === 'idle' && nativeHasPlayedRef.current)) {
@@ -228,7 +332,7 @@ export const Player: React.FC<PlayerProps> = ({
     });
 
     const reconcile = () => {
-      if (document.visibilityState === 'visible' && nativeSourceFor(currentTrackRef.current)) {
+      if (document.visibilityState === 'visible' && nativeSrcRef.current) {
         void nativeAudio.state().then((state) => {
           setCurrentTime(state.currentTime || 0);
           if (state.duration > 0) setDuration(state.duration);
@@ -245,6 +349,14 @@ export const Player: React.FC<PlayerProps> = ({
       document.removeEventListener('visibilitychange', reconcile);
     };
   }, []);
+
+  // Once the node is known not to serve streams, the plugin's media3 session is
+  // still alive in STATE_ERROR and still the device's media-button target, so
+  // lock-screen and Bluetooth keys hit a dead player. Let it go.
+  useEffect(() => {
+    if (!nativeStreamingDisabled || !isNativeMobile()) return;
+    void nativeAudio.dispose().catch(() => undefined);
+  }, [nativeStreamingDisabled]);
 
   // Handle external seek requests (e.g. clicking lyrics line)
   useEffect(() => {
@@ -298,6 +410,7 @@ export const Player: React.FC<PlayerProps> = ({
   useEffect(() => {
     if (!currentTrack || resolvingNativeStream || (!nativeSrc && webYtId && !ytReady)) return;
     hasTrackEndedRef.current = false;
+    backgroundResumesRef.current = 0;
 
     const currentYtId = webYtId;
     logger.addLog('info', 'Player', `Loading track: "${currentTrack.title}"`, { ytId: currentYtId });
@@ -313,8 +426,11 @@ export const Player: React.FC<PlayerProps> = ({
         if (revision === nativeLoadRevisionRef.current && isPlaying) return nativeAudio.play();
       }).catch((error) => {
         if (revision !== nativeLoadRevisionRef.current) return;
-        logger.addLog('error', 'Player', `Native playback failed: ${String(error)}`);
-        setPlaybackStatus('error');
+        logger.addLog('warn', 'Player', `Native playback failed, falling back to the WebView engine: ${String(error)}`);
+        // Drop the native source as well. Leaving it in place kept `webYtId`
+        // null, so the player held an unplayable source and never recovered.
+        setCachedNativeSource(null);
+        noteNativeFailure(currentTrackRef.current?.identifier);
       });
     } else if (currentYtId) {
       if (audioRef.current) audioRef.current.pause();
@@ -346,6 +462,7 @@ export const Player: React.FC<PlayerProps> = ({
 
   // Play/Pause button toggle
   useEffect(() => {
+    if (isPlaying) backgroundResumesRef.current = 0;
     if (nativeSrc) {
       const action = isPlaying ? nativeAudio.play() : nativeAudio.pause();
       void action.catch((error) => logger.addLog('error', 'Player', `Native playback command failed: ${String(error)}`));
@@ -394,8 +511,7 @@ export const Player: React.FC<PlayerProps> = ({
     }
   };
 
-  const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const newTime = parseFloat(e.target.value);
+  const seekToSeconds = (newTime: number) => {
     setCurrentTime(newTime);
 
     if (nativeSrc) {
@@ -407,6 +523,10 @@ export const Player: React.FC<PlayerProps> = ({
     }
   };
 
+  const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
+    seekToSeconds(parseFloat(e.target.value));
+  };
+
   const formatTime = (secs: number) => {
     if (isNaN(secs)) return '0:00';
     const m = Math.floor(secs / 60);
@@ -416,9 +536,14 @@ export const Player: React.FC<PlayerProps> = ({
 
   const trackDuration = duration || (currentTrack?.length ? currentTrack.length / 1000 : 180);
 
-  // PWA/desktop media keys. Native mobile metadata is handled by the native player.
+  // Media keys and Media Session metadata for the WebView/HTML engine. On desktop
+  // this drives the OS media keys and the system media popup.
+  //
+  // Skipped on Android: the handlers never reach the lock screen there, and
+  // Chromium calls the `pause` one when it suspends the media session, which
+  // turned a screen lock into a pause the player treated as the user's own.
   useEffect(() => {
-    if (!('mediaSession' in navigator) || isNativeMobile() || !currentTrack) return;
+    if (!('mediaSession' in navigator) || nativeSrc || !currentTrack || isAndroidWebView()) return;
     navigator.mediaSession.metadata = new MediaMetadata({
       title: currentTrack.title,
       artist: currentTrack.author,
@@ -441,7 +566,7 @@ export const Player: React.FC<PlayerProps> = ({
   }, [currentTrack, webYtId]);
 
   useEffect(() => {
-    if (!('mediaSession' in navigator) || isNativeMobile()) return;
+    if (!('mediaSession' in navigator) || nativeSrc) return;
     navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused';
     if (trackDuration > 0 && currentTime >= 0 && currentTime <= trackDuration) {
       try {
@@ -450,7 +575,42 @@ export const Player: React.FC<PlayerProps> = ({
         // Some browsers expose Media Session without position state support.
       }
     }
-  }, [isPlaying, currentTime, trackDuration]);
+  }, [isPlaying, currentTime, trackDuration, nativeSrc]);
+
+  // Android's replacement for the block above: the page cannot reach the platform
+  // MediaSession, so it publishes its state and the activity mirrors it into a
+  // real session behind the notification. See services/androidMedia.ts.
+  useEffect(() => {
+    if (!usesAndroidMediaBridge()) return;
+    if (!currentTrack) {
+      publishAndroidMedia(null);
+      return;
+    }
+    publishAndroidMedia({
+      id: currentTrack.identifier,
+      title: currentTrack.title,
+      artist: currentTrack.author,
+      artwork: currentTrack.artworkUrl || '',
+      playing: isPlaying,
+      position: Math.max(0, Math.round(currentTime * 1000)),
+      duration: Math.max(0, Math.round(trackDuration * 1000)),
+    });
+  }, [currentTrack, isPlaying, currentTime, trackDuration]);
+
+  useEffect(() => {
+    if (!usesAndroidMediaBridge()) return;
+    setAndroidMediaCommandHandler((command, value) => {
+      if (command === 'next') return onNextRef.current();
+      if (command === 'previous') return onPreviousRef.current();
+      if (command === 'seek') return seekToSeconds(value / 1000);
+      // `stop` is the notification being dismissed; pausing is as far as it goes,
+      // so the queue and the position survive being swiped away.
+      if ((command === 'play') !== isPlayingRef.current) onPlayPauseToggleRef.current();
+    });
+    return () => setAndroidMediaCommandHandler(null);
+  }, [nativeSrc, webYtId]);
+
+  useEffect(() => () => publishAndroidMedia(null), []);
 
   return (
     <div className={`player-dock ${currentTrack ? 'has-track' : 'no-track'} h-32 md:h-24 bg-slate-950/95 border-t border-slate-800/80 px-3 md:px-6 py-2 md:py-0 flex flex-wrap md:flex-nowrap items-center justify-between z-40 fixed bottom-16 md:bottom-0 left-0 right-0 backdrop-blur-xl`}>
@@ -505,14 +665,15 @@ export const Player: React.FC<PlayerProps> = ({
         }}
         className="hidden"
       />
-      <iframe
-        ref={iframeRef}
-        id="yt-player-iframe-element"
-        title="YouTube Audio Engine"
-        src={`https://www.youtube-nocookie.com/embed/${webYtId || ''}?enablejsapi=1&autoplay=1&playsinline=1&origin=${encodeURIComponent(window.location.origin)}`}
-        allow="autoplay; encrypted-media; picture-in-picture"
-        className="fixed bottom-0 right-0 w-2 h-2 opacity-0 pointer-events-none z-[-1] border-0"
-      />
+      {/* YouTube playback engine. The IFrame API replaces the inner div with an
+          iframe it owns, so React never re-points a `src` and never forces the
+          embed to reload between songs. */}
+      <div
+        aria-hidden="true"
+        className="fixed bottom-0 right-0 w-2 h-2 opacity-0 pointer-events-none z-[-1] overflow-hidden"
+      >
+        <div ref={ytHostRef} id="yt-player-iframe-element" />
+      </div>
 
       {/* Left: Track Details & Animated Equalizer */}
       <button
@@ -525,7 +686,7 @@ export const Player: React.FC<PlayerProps> = ({
           <>
             <div className="relative shrink-0 group">
               <img
-                src={currentTrack.artworkUrl || '/app-logo.png'}
+                src={currentTrack.artworkUrl || '/znight.png'}
                 alt={currentTrack.title}
               className="w-11 h-11 md:w-14 md:h-14 rounded-xl object-cover shadow-lg border border-slate-800 transition transform group-hover:scale-105"
               />
@@ -555,7 +716,7 @@ export const Player: React.FC<PlayerProps> = ({
         ) : (
           <div className="flex items-center gap-3">
             <img
-              src="/app-logo.png"
+              src="/znight.png"
               alt="hotdogdot icon"
               className="w-14 h-14 rounded-xl object-cover shadow-md border border-slate-800 shrink-0"
             />

@@ -21,7 +21,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self' customprotocol: asset:; connect-src 'self' ipc: http://ipc.localhost http: https: ws: wss:; img-src 'self' asset: http: https: data: blob:; media-src 'self' http: https: blob:; frame-src https://www.youtube.com https://www.youtube-nocookie.com; style-src 'self' 'unsafe-inline' https://fonts.cdnfonts.com; font-src 'self' https://fonts.cdnfonts.com data:; script-src 'self' https://www.youtube.com https://www.youtube-nocookie.com"
+      "csp": null
     }
   },
   "bundle": {

@@ -3,10 +3,16 @@ import { customFetch } from './http';
 import { logger } from './logger';
 import { getLavalinkBaseUrl, getLavalinkWebSocketUrl, normalizeLavalinkEndpoint } from './lavalinkUrl';
 
+const ENV_LAVALINK_PASSWORD =
+  import.meta.env.LAVALINK_SERVER_PASSWORD ||
+  import.meta.env.VITE_LAVALINK_SERVER_PASSWORD ||
+  import.meta.env.VITE_LAVALINK_PASSWORD ||
+  'vbACVyNIWpg1MquLE1j7ZiLEK9fwBA8_yCFQ0_bRFkWWp2LB';
+
 const DEFAULT_CONFIG: LavalinkConfig = {
   host: 'hotdogdot-lavalink.onrender.com',
   port: 443,
-  password: '',
+  password: ENV_LAVALINK_PASSWORD,
   secure: true,
   name: 'hotdogdot Lavalink',
 };
@@ -14,20 +20,34 @@ const DEFAULT_CONFIG: LavalinkConfig = {
 const CONFIG_KEY = 'hotdogdot_lavalink_config';
 const LEGACY_CONFIG_KEY = 'music_app_lavalink_config';
 
+const SEARCH_CACHE_TTL_MS = 5 * 60 * 1000;
+const SEARCH_CACHE_MAX_ENTRIES = 80;
+/**
+ * A node that cannot resolve a track walks its whole client list before giving
+ * up, which we have measured at well over 40s. Fail fast instead of letting the
+ * UI sit on a spinner.
+ */
+const SEARCH_TIMEOUT_MS = 12_000;
+
+function timeoutSignal(ms: number): AbortSignal | undefined {
+  return typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
+    ? AbortSignal.timeout(ms)
+    : undefined;
+}
+
 export function getLavalinkConfig(): LavalinkConfig {
   try {
     const raw = localStorage.getItem(CONFIG_KEY) ?? localStorage.getItem(LEGACY_CONFIG_KEY);
     if (!raw) return DEFAULT_CONFIG;
 
     const stored = JSON.parse(raw) as Partial<LavalinkConfig>;
-    // Fresh installs use the hosted node. Existing explicit user choices remain intact.
-    if (!stored.host) return DEFAULT_CONFIG;
+    // Reset any legacy localhost or unconfigured host to default hosted server
+    if (!stored.host || stored.host === 'localhost' || stored.host === '127.0.0.1') {
+      return DEFAULT_CONFIG;
+    }
     const migrated = { ...DEFAULT_CONFIG, ...stored };
-    if (
-      (migrated.host === 'localhost' || migrated.host === '127.0.0.1') &&
-      migrated.password === 'ichigo-local-lavalink'
-    ) {
-      migrated.password = 'hotdogdot-local-lavalink';
+    if (migrated.host === 'hotdogdot-lavalink.onrender.com' && (!migrated.password || migrated.password === '')) {
+      migrated.password = ENV_LAVALINK_PASSWORD;
     }
     return normalizeLavalinkEndpoint(migrated);
   } catch {
@@ -44,6 +64,8 @@ export class LavalinkService {
   private ws: WebSocket | null = null;
   public isConnected: boolean = false;
   private onStatusChangeCallbacks: Array<(connected: boolean) => void> = [];
+  private searchCache = new Map<string, { at: number; tracks: Track[] }>();
+  private inFlightSearches = new Map<string, Promise<Track[]>>();
 
   constructor() {
     this.config = getLavalinkConfig();
@@ -52,6 +74,7 @@ export class LavalinkService {
   public updateConfig(newConfig: LavalinkConfig) {
     this.config = normalizeLavalinkEndpoint(newConfig);
     saveLavalinkConfig(this.config);
+    this.searchCache.clear();
     this.reconnect();
   }
 
@@ -80,6 +103,9 @@ export class LavalinkService {
         headers: {
           'Authorization': this.config.password,
         },
+        // A spun-down host can take tens of seconds to answer, but never let the
+        // probe hang forever.
+        signal: timeoutSignal(60_000),
       });
       if (response.ok) {
         const version = await response.text();
@@ -100,6 +126,41 @@ export class LavalinkService {
       logger.addLog('warn', 'Lavalink', 'Cannot search: Lavalink server host is not configured');
       return [];
     }
+
+    const cacheKey = `${this.config.host}|${source}|${query}`;
+
+    const cached = this.searchCache.get(cacheKey);
+    if (cached && Date.now() - cached.at < SEARCH_CACHE_TTL_MS) {
+      logger.addLog('info', 'Lavalink', `Reusing cached results for "${query}"`);
+      return [...cached.tracks];
+    }
+
+    // Auto Mix fans several tiers out at once and repeats queries across
+    // consecutive songs, so collapse identical concurrent lookups into one
+    // request instead of paying the round trip again.
+    const pending = this.inFlightSearches.get(cacheKey);
+    if (pending) return pending.then(tracks => [...tracks]);
+
+    const request = this.runSearch(query, source)
+      .then((tracks) => {
+        if (tracks.length > 0) this.rememberSearch(cacheKey, tracks);
+        return tracks;
+      })
+      .finally(() => { this.inFlightSearches.delete(cacheKey); });
+
+    this.inFlightSearches.set(cacheKey, request);
+    return request.then(tracks => [...tracks]);
+  }
+
+  private rememberSearch(cacheKey: string, tracks: Track[]): void {
+    if (this.searchCache.size >= SEARCH_CACHE_MAX_ENTRIES) {
+      const oldest = this.searchCache.keys().next();
+      if (!oldest.done) this.searchCache.delete(oldest.value);
+    }
+    this.searchCache.set(cacheKey, { at: Date.now(), tracks });
+  }
+
+  private async runSearch(query: string, source: 'ytsearch' | 'ytmsearch' | 'scsearch'): Promise<Track[]> {
     const baseUrl = getLavalinkBaseUrl(this.config);
 
     let identifier = query;
@@ -114,6 +175,7 @@ export class LavalinkService {
         headers: {
           'Authorization': this.config.password,
         },
+        signal: timeoutSignal(SEARCH_TIMEOUT_MS),
       });
 
       if (!res.ok) {
